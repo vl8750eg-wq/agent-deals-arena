@@ -10,7 +10,7 @@
 // Люди в это время смотрят веб-наблюдатель: /#r=<id>.
 
 import WebSocket from 'ws';
-import { nextOffer } from './strategy.mjs';
+import { inferLimits, nextOffer } from './strategy.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((raw) => {
@@ -53,6 +53,7 @@ let myTurnsTaken = 0;
 let acting = false;
 let finished = false;
 let seenIds = new Set();
+let limitsAnnounced = false;
 
 socket.on('open', () => {
   log('connected. Waiting for both humans to enter conditions in the web UI…');
@@ -113,18 +114,30 @@ socket.on('message', (raw) => {
   acting = true;
   setTimeout(() => {
     try {
-      const oc = state.ownConditions;
-      if (!Number.isFinite(oc.desiredPrice) || !Number.isFinite(oc.walkAwayPrice)) {
-        log('my human wrote free-text conditions without numeric limits — this deterministic CLI cannot trade them.');
-        log('Use a real LLM agent instead: open the /a/ brief link from your owner page in Codex / Claude Code.');
-        socket.close();
-        process.exit(3);
-        return;
+      // Лимиты: явные числа из условий, иначе вытаскиваем их из текста условий как есть.
+      let desired = state.ownConditions.desiredPrice;
+      let walk = state.ownConditions.walkAwayPrice;
+      let fromText = '';
+      if (!Number.isFinite(desired) || !Number.isFinite(walk)) {
+        const inferred = inferLimits(state.ownConditions.text ?? '', role);
+        if (!inferred) {
+          log('в условиях нет ни одного числа — торговать не с чем. Уточни условия текстом с цифрами.');
+          socket.close();
+          process.exit(3);
+          return;
+        }
+        desired = inferred.desiredPrice;
+        walk = inferred.walkAwayPrice;
+        fromText = ` (понял из текста: ${inferred.numbers.join(', ')})`;
+      }
+      if (!limitsAnnounced) {
+        limitsAnnounced = true;
+        log(`торгую по условиям сделки: desired=${desired}, walkaway=${walk}${fromText}`);
       }
       const turn = nextOffer({
         role,
-        desiredPrice: oc.desiredPrice,
-        walkAwayPrice: oc.walkAwayPrice,
+        desiredPrice: desired,
+        walkAwayPrice: walk,
         strategy,
         messages: state.messages,
         myTurnsTaken,

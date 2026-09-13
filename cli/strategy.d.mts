@@ -23,3 +23,11 @@ export interface StrategyOutput {
 }
 
 export function nextOffer(input: StrategyInput): StrategyOutput;
+
+export interface InferredLimits {
+  desiredPrice: number;
+  walkAwayPrice: number;
+  numbers: number[];
+}
+
+export function inferLimits(text: string, role: 'SIDE_A' | 'SIDE_B'): InferredLimits | null;
