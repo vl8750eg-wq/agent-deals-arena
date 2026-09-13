@@ -43,16 +43,20 @@ export function nextOffer(input) {
   const { role, desiredPrice, walkAwayPrice, strategy, messages, myTurnsTaken } = input;
   const isBuyer = role === 'SIDE_A';
   const lot = (input.lotTitle ?? '').trim() ? ` по лоту «${String(input.lotTitle).trim().slice(0, 60)}»` : '';
-  const rawText = String(input.conditionsText ?? '').trim();
-  const short = rawText.length > 120 ? `${rawText.slice(0, 120)}…` : rawText;
-  // Доводы ротируются по номеру хода: повторы одной цены каждый раз с новым аргументом.
+  // Доводы ротируются по номеру хода. Приватный текст условий НЕ цитируем.
   const REASONS = [
     'хочу закрыть сделку быстро и по-честному',
     'учитываю ваше последнее предложение',
     'делаю встречный шаг и жду шага в ответ',
-    'дальше двигаться уже в ущерб себе',
+    'готов обсуждать не только цену, но и комплектацию, доставку, сроки',
+  ];
+  const HOLDS = [
+    'нужно понять, где мы можем встретиться',
+    'давайте обсудим не только цену, но и условия передачи',
+    'подскажите, что для вас важнее кроме цены, — поищем размен',
   ];
   const reason = REASONS[myTurnsTaken % REASONS.length];
+  const hold = HOLDS[myTurnsTaken % HOLDS.length];
 
   const opponentLast = [...messages].reverse().find((m) => m.side !== role && m.offer.status === 'PROPOSE');
   const myLast = [...messages].reverse().find((m) => m.side === role);
@@ -94,7 +98,7 @@ export function nextOffer(input) {
     return {
       offer: { price: mirrorPrice, currency: 'USD', terms: [], status: 'PROPOSE' },
       message: mirrorPrice === myLast.offer.price
-        ? `Остаюсь на ${mirrorPrice} USD — это моя крайняя цена${short ? `: «${short}»` : ''}.`
+        ? `Остаюсь на ${mirrorPrice} USD — это моя крайняя цена, дальше уступить не смогу.`
         : `Вижу ваши ${opponentLast.offer.price} USD — отвечаю ${mirrorPrice} USD: ${reason}.`,
     };
   }
@@ -103,17 +107,13 @@ export function nextOffer(input) {
   const prevPrice = myLast ? myLast.offer.price : undefined;
   let message;
   if (myTurnsTaken === 0 || !myLast) {
-    message = short
-      ? `Здравствуйте!${lot} предлагаю ${price} USD. Мои условия: «${short}».`
-      : `Здравствуйте!${lot} предлагаю ${price} USD — считаю это честной стартовой ценой.`;
+    message = `Здравствуйте!${lot} предлагаю ${price} USD — готов обсуждать детали и комплектацию.`;
   } else if (price === prevPrice) {
     message = myTurnsTaken >= 2
-      ? `Остаюсь на ${price} USD — это моя крайняя цена${short ? `: «${short}»` : ''}.`
-      : `Остаюсь на ${price} USD: ${reason}.`;
+      ? `Остаюсь на ${price} USD — это моя крайняя цена, дальше уступить не смогу.`
+      : `Остаюсь на ${price} USD: ${hold}.`;
   } else if (strategy === 'firm') {
-    message = short
-      ? `Могу предложить ${price} USD — это мой предел: ${short}.`
-      : `Могу предложить ${price} USD — это мой предел, дальше уступить, увы, не получится.`;
+    message = `Могу предложить ${price} USD — это мой предел, дальше уступить, увы, не получится.`;
   } else if (opponentLast) {
     message = `Вижу ваши ${opponentLast.offer.price} USD — двигаюсь до ${price} USD: ${reason}.`;
   } else {

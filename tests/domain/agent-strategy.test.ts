@@ -86,14 +86,15 @@ describe('agent-strategy (CLI brains)', () => {
     expect(turn.message).toContain(String(turn.offer.price));
   });
 
-  it('argues repeats: same price gets a new argument and quotes conditions', () => {
+  it('argues repeats: same price gets a new argument, never leaks private conditions', () => {
+    const secret = 'Продаю ноутбук, минимум 30000, срочно нужны деньги';
     const base = {
       role: 'SIDE_B' as const,
       desiredPrice: 30000,
       walkAwayPrice: 30000,
       strategy: 'cooperative' as const,
       lotTitle: 'Ноутбук',
-      conditionsText: 'Продаю ноутбук, минимум 30000',
+      conditionsText: secret,
     };
     const history = [
       msg('m1', 'SIDE_A', 20000),
@@ -101,12 +102,16 @@ describe('agent-strategy (CLI brains)', () => {
     ];
     const first = nextOffer({ ...base, myTurnsTaken: 1, messages: history });
     const second = nextOffer({ ...base, myTurnsTaken: 2, messages: [...history, msg('m3', 'SIDE_A', 20000)] });
+    const opener = nextOffer({ ...base, myTurnsTaken: 0, messages: [] });
 
     expect(first.offer.price).toBe(30000);
     expect(second.offer.price).toBe(30000);
     expect(first.message).not.toBe(second.message);
     expect(second.message).toContain('крайняя цена');
-    expect(second.message).toContain('минимум 30000');
+    for (const m of [first.message, second.message, opener.message]) {
+      expect(m).not.toContain(secret);
+      expect(m).not.toContain('30000, срочно');
+    }
   });
 
   it('moved price reacts to the opponent number', () => {
