@@ -37,11 +37,22 @@ export function inferLimits(text, role) {
  * @param {Array<{id:string,side:string,offer:{price:number,status:string},message:string}>} input.messages
  * @param {number} input.myTurnsTaken
  * @param {string} [input.lotTitle]
+ * @param {string} [input.conditionsText]
  */
 export function nextOffer(input) {
   const { role, desiredPrice, walkAwayPrice, strategy, messages, myTurnsTaken } = input;
   const isBuyer = role === 'SIDE_A';
   const lot = (input.lotTitle ?? '').trim() ? ` по лоту «${String(input.lotTitle).trim().slice(0, 60)}»` : '';
+  const rawText = String(input.conditionsText ?? '').trim();
+  const short = rawText.length > 120 ? `${rawText.slice(0, 120)}…` : rawText;
+  // Доводы ротируются по номеру хода: повторы одной цены каждый раз с новым аргументом.
+  const REASONS = [
+    'хочу закрыть сделку быстро и по-честному',
+    'учитываю ваше последнее предложение',
+    'делаю встречный шаг и жду шага в ответ',
+    'дальше двигаться уже в ущерб себе',
+  ];
+  const reason = REASONS[myTurnsTaken % REASONS.length];
 
   const opponentLast = [...messages].reverse().find((m) => m.side !== role && m.offer.status === 'PROPOSE');
   const myLast = [...messages].reverse().find((m) => m.side === role);
@@ -79,29 +90,39 @@ export function nextOffer(input) {
     const oppStep = Math.abs(opponentLast.offer.price - myLast.offer.price);
     const myStep = Math.abs(span * stepFraction);
     const step = Math.sign(span) * Math.min(Math.max(oppStep, myStep * 0.5), Math.abs(span));
-    const price = clamp(Math.round(myLast.offer.price + step), desiredPrice, walkAwayPrice);
+    const mirrorPrice = clamp(Math.round(myLast.offer.price + step), desiredPrice, walkAwayPrice);
     return {
-      offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },
-      message: `Вижу ваши ${opponentLast.offer.price} USD — иду навстречу: ${price} USD. Двигаемся друг к другу!`,
+      offer: { price: mirrorPrice, currency: 'USD', terms: [], status: 'PROPOSE' },
+      message: mirrorPrice === myLast.offer.price
+        ? `Остаюсь на ${mirrorPrice} USD — это моя крайняя цена${short ? `: «${short}»` : ''}.`
+        : `Вижу ваши ${opponentLast.offer.price} USD — отвечаю ${mirrorPrice} USD: ${reason}.`,
     };
   }
 
   const price = clamp(Math.round(desiredPrice + concession), desiredPrice, walkAwayPrice);
-  if (myTurnsTaken === 0) {
-    return {
-      offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },
-      message: `Здравствуйте!${lot} предлагаю ${price} USD — считаю это честной стартовой ценой.`,
-    };
+  const prevPrice = myLast ? myLast.offer.price : undefined;
+  let message;
+  if (myTurnsTaken === 0 || !myLast) {
+    message = short
+      ? `Здравствуйте!${lot} предлагаю ${price} USD. Мои условия: «${short}».`
+      : `Здравствуйте!${lot} предлагаю ${price} USD — считаю это честной стартовой ценой.`;
+  } else if (price === prevPrice) {
+    message = myTurnsTaken >= 2
+      ? `Остаюсь на ${price} USD — это моя крайняя цена${short ? `: «${short}»` : ''}.`
+      : `Остаюсь на ${price} USD: ${reason}.`;
+  } else if (strategy === 'firm') {
+    message = short
+      ? `Могу предложить ${price} USD — это мой предел: ${short}.`
+      : `Могу предложить ${price} USD — это мой предел, дальше уступить, увы, не получится.`;
+  } else if (opponentLast) {
+    message = `Вижу ваши ${opponentLast.offer.price} USD — двигаюсь до ${price} USD: ${reason}.`;
+  } else {
+    message = `Двигаюсь до ${price} USD: ${reason}.`;
   }
-  const polite = strategy === 'firm'
-    ? `Могу предложить ${price} USD — это мой предел, дальше уступить, увы, не получится.`
-    : strategy === 'mirror'
-      ? `Отвечаю ${price} USD — сближаем позиции шаг за шагом.`
-      : `Готов подвинуться до ${price} USD — давайте договоримся, вещь того стоит!`;
 
   return {
     offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },
-    message: polite,
+    message,
   };
 }
 

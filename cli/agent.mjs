@@ -182,6 +182,7 @@ socket.on('message', (raw) => {
         messages: state.messages,
         myTurnsTaken,
         lotTitle: state.lotTitle,
+        conditionsText: state.ownConditions.text,
       });
       myTurnsTaken += 1;
       socket.send(JSON.stringify({ type: 'post_message', offer: turn.offer, message: turn.message }));

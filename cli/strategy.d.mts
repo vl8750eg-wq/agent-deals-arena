@@ -16,6 +16,7 @@ export interface StrategyInput {
   messages: StrategyMessage[];
   myTurnsTaken: number;
   lotTitle?: string;
+  conditionsText?: string;
 }
 
 export interface StrategyOutput {

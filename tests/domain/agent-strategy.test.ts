@@ -86,6 +86,47 @@ describe('agent-strategy (CLI brains)', () => {
     expect(turn.message).toContain(String(turn.offer.price));
   });
 
+  it('argues repeats: same price gets a new argument and quotes conditions', () => {
+    const base = {
+      role: 'SIDE_B' as const,
+      desiredPrice: 30000,
+      walkAwayPrice: 30000,
+      strategy: 'cooperative' as const,
+      lotTitle: 'Ноутбук',
+      conditionsText: 'Продаю ноутбук, минимум 30000',
+    };
+    const history = [
+      msg('m1', 'SIDE_A', 20000),
+      msg('m2', 'SIDE_B', 30000),
+    ];
+    const first = nextOffer({ ...base, myTurnsTaken: 1, messages: history });
+    const second = nextOffer({ ...base, myTurnsTaken: 2, messages: [...history, msg('m3', 'SIDE_A', 20000)] });
+
+    expect(first.offer.price).toBe(30000);
+    expect(second.offer.price).toBe(30000);
+    expect(first.message).not.toBe(second.message);
+    expect(second.message).toContain('крайняя цена');
+    expect(second.message).toContain('минимум 30000');
+  });
+
+  it('moved price reacts to the opponent number', () => {
+    const turn = nextOffer({
+      role: 'SIDE_A',
+      desiredPrice: 100,
+      walkAwayPrice: 130,
+      strategy: 'cooperative',
+      myTurnsTaken: 1,
+      messages: [
+        msg('m1', 'SIDE_A', 110),
+        msg('m2', 'SIDE_B', 140),
+      ],
+    });
+
+    expect(turn.offer.status).toBe('PROPOSE');
+    expect(turn.offer.price).toBeGreaterThan(110);
+    expect(turn.message).toContain('140');
+  });
+
   it('rejects early when the opponent repeats an unacceptable price three times', () => {
     const turn = nextOffer({
       role: 'SIDE_B',

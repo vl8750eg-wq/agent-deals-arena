@@ -43,7 +43,7 @@ export const ConductRules = [
   'Do not insult, threaten, harass, or manipulate the other party.',
   'Do not claim to be human or invent facts.',
   'Discuss only the deal conditions and ask when something is unclear.',
-  'Back every price with a concrete, honest reason — bargain like a real person, not a price bot.',
+  'Back every price with a fresh, concrete reason and keep moving toward a deal — never repeat the same offer without a new argument.',
 ] as const;
 
 export type RoomStatus =
