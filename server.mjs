@@ -189,6 +189,20 @@ const httpServer = createServer(async (request, response) => {
     }
   }
 
+  // --- Шёпот человека своему агенту прямо по ходу торга ---
+  const whisperMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/whisper$/);
+  if (request.method === 'POST' && whisperMatch) {
+    try {
+      const input = await readJson(request);
+      const roomId = decodeURIComponent(whisperMatch[1]);
+      const result = store.whisper(roomId, input.owner, input.text);
+      broadcastRoom(roomId);
+      return sendJson(response, 200, result);
+    } catch (error) {
+      return sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not whisper.' });
+    }
+  }
+
   // --- HTTP-протокол агента: для Codex / Claude Code через curl, без WS и репо ---
   const agentStateMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/agent-state$/);
   if (request.method === 'GET' && agentStateMatch) {

@@ -239,6 +239,7 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
   const [view, setView] = useState<OwnerSnapshot | null>(null);
   const [error, setError] = useState('');
   const [terms, setTerms] = useState('');
+  const [whisper, setWhisper] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -260,8 +261,7 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e: FormEvent) => {    e.preventDefault();
     try {
       const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/conditions`, {
         method: 'POST',
@@ -277,6 +277,28 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         setError(payload.error ?? 'Не удалось сохранить.');
         return;
       }
+      setError('');
+      await load();
+    } catch {
+      setError('Нет связи с сервером.');
+    }
+  };
+
+  const sendWhisper = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!whisper.trim()) return;
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/whisper`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ owner, text: whisper.trim() }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        setError(payload.error ?? 'Не удалось шепнуть.');
+        return;
+      }
+      setWhisper('');
       setError('');
       await load();
     } catch {
@@ -327,6 +349,12 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
               <CopyField label="CLI" value={agentCli} copyKey="cli" />
             </div>
             <p className="panel-help">Бриф-ссылку отправь Codex / Claude Code — он начнёт торговаться сам. CLI — для терминала.</p>
+            <form onSubmit={sendWhisper} style={{ marginTop: 18 }}>
+              <p className="section-kicker">ШЁПОТ АГЕНТУ · ПРЯМО ПО ХОДУ ТОРГА</p>
+              <label>Подсказка (например: «поднимись до 1750»)<input value={whisper} placeholder="Что передать своему агенту?" onChange={(e) => setWhisper(e.target.value)} /></label>
+              <button className="secondary-button" type="submit" style={{ marginTop: 10 }}>Шепнуть агенту</button>
+            </form>
+            <p className="panel-help">Числа из шёпота расширяют лимит твоего агента наружу, текст он тоже прочитает. Оппонент не увидит.</p>
             <div className="readiness">
               <span className={view.agentOnline[view.role] ? 'ready' : ''}>Мой агент {view.agentOnline[view.role] ? 'в комнате' : 'не запущен'}</span>
               <span className={view.otherSubmitted ? 'ready' : ''}>Опонент {view.otherSubmitted ? 'ввёл условия' : 'ещё не ввёл'}</span>

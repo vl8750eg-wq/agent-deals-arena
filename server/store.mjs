@@ -7,6 +7,7 @@
 //  - наблюдатель не получает ни токенов, ни приватных условий.
 
 import { randomBytes, randomUUID } from 'node:crypto';
+import { extractNumbers } from '../shared/extract-numbers.mjs';
 
 const ROOM_TTL_MS = 24 * 3600 * 1000;
 
@@ -181,6 +182,35 @@ export function createStore() {
     return { side, status: room.status };
   };
 
+  /** Шёпот человека своему агенту прямо по ходу торга.
+   *  Числа из подсказки только РАСШИРЯЮТ коридор наружу
+   *  (покупатель: walkAway вверх, продавец: walkAway вниз);
+   *  текст подсказки дописывается к условиям — его читают LLM-агенты.
+   *  После финала шёпот закрыт. */
+  const whisper = (roomId, ownerToken, text) => {
+    const room = get(roomId);
+    const side = sideOfOwner(room, ownerToken);
+    if (!side) fail('Invalid owner token.');
+    if (room.status !== 'WAITING_FOR_SUBMISSIONS' && room.status !== 'IN_NEGOTIATION') {
+      fail('Negotiation is over: whisper is closed.');
+    }
+    const own = room.sides[side];
+    if (!own.conditions) fail('Enter your deal conditions first.');
+    const clean = String(text ?? '').trim().slice(0, 500);
+    if (!clean) fail('Whisper must be 1..500 characters.');
+    const numbers = extractNumbers(clean);
+    if (numbers.length > 0) {
+      if (side === 'SIDE_A') {
+        own.conditions.walkAwayPrice = Math.max(own.conditions.walkAwayPrice ?? -Infinity, ...numbers);
+        if (!Number.isFinite(own.conditions.desiredPrice)) own.conditions.desiredPrice = Math.min(...numbers);
+      } else {
+        own.conditions.walkAwayPrice = Math.min(own.conditions.walkAwayPrice ?? Infinity, ...numbers);
+        if (!Number.isFinite(own.conditions.desiredPrice)) own.conditions.desiredPrice = Math.max(...numbers);
+      }
+    }
+    own.conditions.text = `${own.conditions.text}\n[шёпот человека]: ${clean}`.slice(-2000);
+    return { side, conditions: own.conditions };
+  };
   /** Ход CLI-агента: проверка токена, очереди и ссылки ACCEPT. */
   const postMessage = (roomId, role, agentToken, payload) => {
     const room = get(roomId);
@@ -248,7 +278,7 @@ export function createStore() {
 
   return {
     createRoom, claimInvite, ownerSnapshot, agentState,
-    setConditions, postMessage, publicSnapshot, setAgentOnline, purge,
+    setConditions, whisper, postMessage, publicSnapshot, setAgentOnline, purge,
     size: () => rooms.size,
     // только для тестов/отладки:
     _get: (roomId) => rooms.get(roomId),

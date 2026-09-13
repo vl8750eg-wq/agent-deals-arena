@@ -300,4 +300,55 @@ describe('arena full flow', () => {
     expect(badBrief.status).toBe(404);
     expect(await badBrief.text()).not.toContain(tokA);
   });
+
+  it('whisper moves own walk-away outward mid-trade; closed after finish', async () => {
+    const created = await post('/api/rooms', { origin: BASE, lotTitle: 'Whisper', maxRounds: 1 });
+    const roomId = created.data.roomId as string;
+    const ownerA = decodeURIComponent(new URL(created.data.ownerUrlA).hash.match(/owner=([^&]+)/)![1]);
+    const invite = decodeURIComponent(new URL(created.data.inviteUrl).hash.match(/invite=([^&]+)/)![1]);
+
+    // Шёпот до ввода условий — нельзя
+    const early = await post(`/api/rooms/${roomId}/whisper`, { owner: ownerA, text: 'поднимись до 150' });
+    expect(early.status).toBe(400);
+
+    await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerA, conditions: { text: 'Buyer up to 130', desiredPrice: 100, walkAwayPrice: 130 },
+    });
+    const claim = await post(`/api/rooms/${roomId}/claim`, { invite });
+    const ownerB = claim.data.ownerToken as string;
+    await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerB, conditions: { text: 'Seller from 120', desiredPrice: 150, walkAwayPrice: 120 },
+    });
+
+    // Чужой токен и пустой текст — 400
+    expect((await post(`/api/rooms/${roomId}/whisper`, { owner: 'nope', text: 'x' })).status).toBe(400);
+    expect((await post(`/api/rooms/${roomId}/whisper`, { owner: ownerA, text: '  ' })).status).toBe(400);
+
+    // Покупатель расширяет предел вверх, текст дописывается
+    const wA = await post(`/api/rooms/${roomId}/whisper`, { owner: ownerA, text: 'поднимись до 150' });
+    expect(wA.status).toBe(200);
+    expect(wA.data.conditions.walkAwayPrice).toBe(150);
+    expect(wA.data.conditions.desiredPrice).toBe(100);
+    expect(wA.data.conditions.text).toContain('поднимись до 150');
+
+    // Продавец расширяет предел вниз; шёпот без чисел только дописывает текст
+    const wB = await post(`/api/rooms/${roomId}/whisper`, { owner: ownerB, text: 'можно до 100' });
+    expect(wB.data.conditions.walkAwayPrice).toBe(100);
+    const wB2 = await post(`/api/rooms/${roomId}/whisper`, { owner: ownerB, text: 'держись!' });
+    expect(wB2.data.conditions.walkAwayPrice).toBe(100);
+    expect(wB2.data.conditions.text).toContain('держись!');
+
+    // Чужой не видит шёпот в публичном снапшоте
+    const pub = await get(`/api/rooms/${roomId}`);
+    expect(JSON.stringify(pub.data)).not.toContain('поднимись');
+
+    // Завершаем комнату (лимит 1 раунд) — шёпот после финала закрыт
+    const tokA = (await get(`/api/rooms/${roomId}/view?owner=${encodeURIComponent(ownerA)}`)).data.agentToken as string;
+    await post(`/api/rooms/${roomId}/agent-message`, {
+      role: 'SIDE_A', token: tokA,
+      offer: { price: 110, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'go',
+    });
+    expect((await get(`/api/rooms/${roomId}`)).data.status).toBe('FAILED');
+    expect((await post(`/api/rooms/${roomId}/whisper`, { owner: ownerA, text: 'ещё' })).status).toBe(400);
+  });
 });

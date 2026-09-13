@@ -1,22 +1,20 @@
 // Детерминированная стратегия CLI-агента (зеркало src/domain/agent-strategy.ts).
 // Держим отдельным .mjs, чтобы `node cli/agent.mjs` работал без сборки TypeScript.
 // Паритет nextOffer проверяется тестом tests/domain/strategy-parity.test.ts.
+import { extractNumbers } from '../shared/extract-numbers.mjs';
 
 /**
  * Эвристика: вытащить числовые лимиты из свободного текста условий.
  * Покупатель (SIDE_A): desired = min, walkAway = max (одно число — оба равны ему).
  * Продавец (SIDE_B): desired = max, walkAway = min (одно число — оба равны ему).
- * Возвращает null, если чисел в тексте нет. Используется ТОЛЬКО с явным
- * флагом --infer-limits: угадывать денежные лимиты молча запрещено.
+ * Возвращает null, если чисел в тексте нет.
  *
  * @param {string} text
  * @param {'SIDE_A'|'SIDE_B'} role
  * @returns {{desiredPrice:number, walkAwayPrice:number, numbers:number[]} | null}
  */
 export function inferLimits(text, role) {
-  const numbers = (String(text ?? '').match(/\d[\d\s]*(?:[.,]\d+)?/g) ?? [])
-    .map((raw) => Number(raw.replace(/\s/g, '').replace(',', '.')))
-    .filter((n) => Number.isFinite(n) && n >= 0);
+  const numbers = extractNumbers(text);
   if (numbers.length === 0) return null;
   const lo = Math.min(...numbers);
   const hi = Math.max(...numbers);
