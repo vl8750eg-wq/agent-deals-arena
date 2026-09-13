@@ -53,6 +53,22 @@ export function nextOffer(input) {
     };
   }
 
+  // Нет ZOPA: оппонент трижды повторил одну и ту же неприемлемую цену —
+  // дальше топтаться нет смысла, честно выходим REJECT вместо лимита раундов.
+  const oppProposes = messages.filter((m) => m.side !== role && m.offer.status === 'PROPOSE');
+  const lastThree = oppProposes.slice(-3);
+  if (
+    lastThree.length === 3 &&
+    lastThree.every((m) => m.offer.price === lastThree[0].offer.price) &&
+    !acceptable(lastThree[0].offer.price)
+  ) {
+    const price = lastThree[0].offer.price;
+    return {
+      offer: { price, currency: 'USD', terms: [], status: 'REJECT' },
+      message: `No common ground at ${price} USD — I have to stop here.`,
+    };
+  }
+
   const span = walkAwayPrice - desiredPrice;
   const stepFraction = strategy === 'firm' ? 0.12 : strategy === 'mirror' ? 0.25 : 0.34;
   const concession = span * stepFraction * (myTurnsTaken + 1);

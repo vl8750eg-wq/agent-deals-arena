@@ -21,6 +21,16 @@ const fixtures: StrategyInput[] = [
     role: 'SIDE_A', desiredPrice: 100, walkAwayPrice: 130, strategy: 'cooperative', myTurnsTaken: 2,
     messages: [{ id: 'm9', side: 'SIDE_B', offer: { price: 125, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'deal?' }],
   },
+  {
+    role: 'SIDE_B', desiredPrice: 30000, walkAwayPrice: 30000, strategy: 'cooperative', myTurnsTaken: 3,
+    messages: [
+      { id: 'm1', side: 'SIDE_A', offer: { price: 20000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'a' },
+      { id: 'm2', side: 'SIDE_B', offer: { price: 30000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'b' },
+      { id: 'm3', side: 'SIDE_A', offer: { price: 20000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'a' },
+      { id: 'm4', side: 'SIDE_B', offer: { price: 30000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'b' },
+      { id: 'm5', side: 'SIDE_A', offer: { price: 20000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'a' },
+    ],
+  },
 ];
 
 describe('strategy parity (TS domain <-> CLI runtime)', () => {

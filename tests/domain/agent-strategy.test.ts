@@ -55,7 +55,6 @@ describe('agent-strategy (CLI brains)', () => {
     expect(second.offer.price).toBeGreaterThan(first.offer.price);
     expect(second.offer.price).toBeLessThanOrEqual(130);
   });
-
   it('keeps proposing (never accepts) when opponent price is unacceptable', () => {
     const turn = nextOffer({
       role: 'SIDE_A',
@@ -68,5 +67,19 @@ describe('agent-strategy (CLI brains)', () => {
 
     expect(turn.offer.status).toBe('PROPOSE');
     expect(turn.offer.price).toBeLessThanOrEqual(130);
+  });
+
+  it('rejects early when the opponent repeats an unacceptable price three times', () => {
+    const turn = nextOffer({
+      role: 'SIDE_B',
+      desiredPrice: 30000,
+      walkAwayPrice: 30000,
+      strategy: 'cooperative',
+      myTurnsTaken: 3,
+      messages: [msg('m1', 'SIDE_A', 20000), msg('m2', 'SIDE_B', 30000), msg('m3', 'SIDE_A', 20000), msg('m4', 'SIDE_B', 30000), msg('m5', 'SIDE_A', 20000)],
+    });
+
+    expect(turn.offer.status).toBe('REJECT');
+    expect(turn.offer.price).toBe(20000);
   });
 });
