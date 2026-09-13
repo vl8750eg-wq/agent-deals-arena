@@ -18,6 +18,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createStore } from './server/store.mjs';
+import { buildAgentBrief } from './shared/agent-brief.mjs';
 
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 8787);
 const DEFAULT_MAX_ROUNDS = Number(process.env.MAX_ROUNDS ?? 20);
@@ -213,6 +214,27 @@ const httpServer = createServer(async (request, response) => {
     } catch (error) {
       return sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not post message.' });
     }
+  }
+
+  // --- Бриф агента plain-text: эту ссылку человек отправляет Codex / Claude Code ---
+  // curl по ней возвращает инструкции + curl-команды (без JS, без репо).
+  const briefMatch = url.pathname.match(/^\/a\/([^/]+)\/(SIDE_A|SIDE_B)\/(.+)$/);
+  if (request.method === 'GET' && briefMatch) {
+    try {
+      const roomId = decodeURIComponent(briefMatch[1]);
+      const role = briefMatch[2];
+      const token = decodeURIComponent(briefMatch[3]);
+      store.agentState(roomId, role, token); // проверка credentials (бросит при чужих)
+      const proto = request.headers['x-forwarded-proto'] ?? 'http';
+      const host = request.headers['x-forwarded-host'] ?? request.headers.host ?? 'localhost';
+      const origin = `${proto}://${host}`;
+      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*' });
+      response.end(buildAgentBrief({ origin, roomId, side: role, token }));
+    } catch {
+      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      response.end('Unknown agent link.');
+    }
+    return;
   }
 
   // --- 4. Наблюдатель: публичный снапшот и SSE-лента ---

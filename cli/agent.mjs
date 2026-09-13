@@ -113,10 +113,18 @@ socket.on('message', (raw) => {
   acting = true;
   setTimeout(() => {
     try {
+      const oc = state.ownConditions;
+      if (!Number.isFinite(oc.desiredPrice) || !Number.isFinite(oc.walkAwayPrice)) {
+        log('my human wrote free-text conditions without numeric limits — this deterministic CLI cannot trade them.');
+        log('Use a real LLM agent instead: open the /a/ brief link from your owner page in Codex / Claude Code.');
+        socket.close();
+        process.exit(3);
+        return;
+      }
       const turn = nextOffer({
         role,
-        desiredPrice: state.ownConditions.desiredPrice,
-        walkAwayPrice: state.ownConditions.walkAwayPrice,
+        desiredPrice: oc.desiredPrice,
+        walkAwayPrice: oc.walkAwayPrice,
         strategy,
         messages: state.messages,
         myTurnsTaken,

@@ -9,15 +9,15 @@ import {
 } from '../../src/domain/negotiation-room';
 
 const sideAConditions: OpponentConditions = {
+  text: 'Buyer: want 100, limit 130.',
   desiredPrice: 100,
   walkAwayPrice: 130,
-  notes: 'Buyer notes',
 };
 
 const sideBConditions: OpponentConditions = {
+  text: 'Seller: want 150, limit 120.',
   desiredPrice: 150,
   walkAwayPrice: 120,
-  notes: 'Seller notes',
 };
 
 const offer = (price: number, status: AgentTurn['offer']['status']): AgentTurn => ({

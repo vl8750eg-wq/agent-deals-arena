@@ -6,15 +6,15 @@ import {
 } from '../../src/domain/negotiation-room';
 
 const buyerConditions: OpponentConditions = {
+  text: 'I want to pay up to 130, ideally 100. I can collect the item this week.',
   desiredPrice: 100,
   walkAwayPrice: 130,
-  notes: 'I can collect the item this week.',
 };
 
 const sellerConditions: OpponentConditions = {
+  text: 'I want 150, can go down to 120. The item is ready for pickup.',
   desiredPrice: 150,
   walkAwayPrice: 120,
-  notes: 'The item is ready for pickup.',
 };
 
 describe('NegotiationRoom', () => {
@@ -42,8 +42,13 @@ describe('NegotiationRoom', () => {
     expect(room.getAgentContext('SIDE_B').conductRules).toEqual(ConductRules);
   });
 
-  it('keeps each opponent conditions out of the other context', () => {
+  it('accepts free-text-only conditions (numbers are optional)', () => {
     const room = new NegotiationRoom();
+    expect(() => room.submitConditions('SIDE_A', { text: 'Куплю ноутбук, по цене договоримся' })).not.toThrow();
+    expect(room.status).toBe('WAITING_FOR_SUBMISSIONS');
+  });
+
+  it('keeps each opponent conditions out of the other context', () => {    const room = new NegotiationRoom();
     room.submitConditions('SIDE_A', buyerConditions);
     room.submitConditions('SIDE_B', sellerConditions);
 

@@ -16,12 +16,15 @@ const fail = (message) => {
   throw new Error(message);
 };
 
-const isValidConditions = (c) => (
-  c &&
-  Number.isFinite(c.desiredPrice) && c.desiredPrice >= 0 &&
-  Number.isFinite(c.walkAwayPrice) && c.walkAwayPrice >= 0 &&
-  typeof c.notes === 'string' && c.notes.length <= 2_000
-);
+const isValidConditions = (c) => {
+  if (!c || typeof c.text !== 'string') return false;
+  const text = c.text.trim();
+  if (!text || text.length > 2_000) return false;
+  for (const key of ['desiredPrice', 'walkAwayPrice']) {
+    if (c[key] !== undefined && (!Number.isFinite(c[key]) || c[key] < 0)) return false;
+  }
+  return true;
+};
 
 const normalizeOffer = (offer) => {
   if (!offer || typeof offer !== 'object') fail('Offer must be an object.');
@@ -155,18 +158,20 @@ export function createStore() {
     const side = sideOfOwner(room, ownerToken);
     if (!side) fail('Invalid owner token.');
     if (room.status !== 'WAITING_FOR_SUBMISSIONS') fail('Conditions are locked: negotiation already started.');
-    if (!isValidConditions(conditions)) fail('Invalid deal conditions.');
-    if (side === 'SIDE_A' && conditions.desiredPrice > conditions.walkAwayPrice) {
-      fail('SIDE_A is the buyer: desired price must be <= walk-away price.');
+    if (!isValidConditions(conditions)) fail('Invalid deal conditions: write your deal terms as text (1..2000 chars).');
+    // Направление — только если заданы оба числа (нужны CLI и gate).
+    if (Number.isFinite(conditions.desiredPrice) && Number.isFinite(conditions.walkAwayPrice)) {
+      if (side === 'SIDE_A' && conditions.desiredPrice > conditions.walkAwayPrice) {
+        fail('SIDE_A is the buyer: desired price must be <= walk-away price.');
+      }
+      if (side === 'SIDE_B' && conditions.desiredPrice < conditions.walkAwayPrice) {
+        fail('SIDE_B is the seller: desired price must be >= walk-away price.');
+      }
     }
-    if (side === 'SIDE_B' && conditions.desiredPrice < conditions.walkAwayPrice) {
-      fail('SIDE_B is the seller: desired price must be >= walk-away price.');
-    }
-    room.sides[side].conditions = {
-      desiredPrice: conditions.desiredPrice,
-      walkAwayPrice: conditions.walkAwayPrice,
-      notes: String(conditions.notes ?? '').slice(0, 2000).trim(),
-    };
+    const clean = { text: String(conditions.text).trim() };
+    if (Number.isFinite(conditions.desiredPrice)) clean.desiredPrice = conditions.desiredPrice;
+    if (Number.isFinite(conditions.walkAwayPrice)) clean.walkAwayPrice = conditions.walkAwayPrice;
+    room.sides[side].conditions = clean;
     if (room.sides.SIDE_A.conditions && room.sides.SIDE_B.conditions) {
       room.status = 'IN_NEGOTIATION';
       room.nextTurn = 'SIDE_A';
@@ -194,14 +199,14 @@ export function createStore() {
       }
     }
 
-    // Серверный предел walk-away: ни PROPOSE, ни ACCEPT не могут выйти за лимит автора.
+    // Серверный предел walk-away — только если человек задал числовой лимит.
     // A — покупатель (цена <= walkAway), B — продавец (цена >= walkAway).
-    const limits = side.conditions;
-    const withinLimit = role === 'SIDE_A'
-      ? offer.price <= limits.walkAwayPrice
-      : offer.price >= limits.walkAwayPrice;
-    if (!withinLimit) {
-      fail(`Offer price ${offer.price} violates your walk-away limit (${limits.walkAwayPrice}).`);
+    const limit = side.conditions.walkAwayPrice;
+    if (Number.isFinite(limit)) {
+      const withinLimit = role === 'SIDE_A' ? offer.price <= limit : offer.price >= limit;
+      if (!withinLimit) {
+        fail(`Offer price ${offer.price} violates your walk-away limit (${limit}).`);
+      }
     }
 
     const entry = {

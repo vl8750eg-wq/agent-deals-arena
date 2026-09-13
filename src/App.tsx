@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ConductRules } from './domain/negotiation-room';
-import { buildAgentCli, parseHash, agentStateUrl, agentBrief } from './domain/room-link';
+import { buildAgentCli, parseHash } from './domain/room-link';
 
 // Веб-интерфейс Арены. Люди вводят условия и наблюдают; торгуют только CLI-агенты.
 //
@@ -41,7 +41,7 @@ type PublicSnapshot = {
 
 type OwnerSnapshot = PublicSnapshot & {
   role: Side;
-  ownConditions: { desiredPrice: number; walkAwayPrice: number; notes: string } | null;
+  ownConditions: { text: string; desiredPrice?: number; walkAwayPrice?: number } | null;
   ownSubmitted: boolean;
   otherSubmitted: boolean;
   agentToken: string;
@@ -227,9 +227,7 @@ function HomeView() {
 function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
   const [view, setView] = useState<OwnerSnapshot | null>(null);
   const [error, setError] = useState('');
-  const [desired, setDesired] = useState('');
-  const [walkaway, setWalkaway] = useState('');
-  const [notes, setNotes] = useState('');
+  const [terms, setTerms] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -260,7 +258,7 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         body: JSON.stringify({
           owner,
           origin: window.location.origin,
-          conditions: { desiredPrice: Number(desired), walkAwayPrice: Number(walkaway), notes: notes.trim() },
+          conditions: { text: terms.trim() },
         }),
       });
       const payload = await res.json();
@@ -293,15 +291,13 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         </div>
         {!view.ownSubmitted ? (
           <form onSubmit={submit}>
-            <p className="panel-help">Опонент и его агент этих цифр не увидят. Агент получит их автоматически.</p>
-            <label>{view.role === 'SIDE_A' ? 'Желаемая цена (покупатель: ниже предела)' : 'Желаемая цена (продавец: выше предела)'}<input type="number" min={0} required value={desired} onChange={(e) => setDesired(e.target.value)} /></label>
-            <label>Предел (walk-away): {view.role === 'SIDE_A' ? 'максимум, который готов заплатить' : 'минимум, за который готов отдать'}<input type="number" min={0} required value={walkaway} onChange={(e) => setWalkaway(e.target.value)} /></label>
-            <label>Заметки для агента<textarea value={notes} placeholder="Что важно кроме цены?" onChange={(e) => setNotes(e.target.value)} /></label>
+            <p className="panel-help">Опишите сделку своими словами: что покупаете/продаёте, цена, пределы, сроки, доставка. Это прочитает ваш агент (Codex / Claude Code), оппонент не увидит.</p>
+            <label>Мои условия сделки<textarea value={terms} required placeholder="Например: Покупаю ноутбук ThinkPad T480, готов заплатить до 30000 руб., самовывоз в выходные. Ниже 25000 было бы идеально." onChange={(e) => setTerms(e.target.value)} /></label>
             <button className="primary-button" type="submit" style={{ marginTop: 16 }}>Сохранить условия</button>
           </form>
         ) : (
           <>
-            <p className="panel-help">Условия сохранены: {view.ownConditions!.desiredPrice} → предел {view.ownConditions!.walkAwayPrice}. Отправьте ссылку ниже своему агенту.</p>
+            <p className="panel-help">Ваши условия: «{view.ownConditions!.text}»{view.ownConditions!.walkAwayPrice !== undefined ? ` · числовой предел: ${view.ownConditions!.walkAwayPrice}` : ''}</p>
             <div className="link-grid">
               <CopyField label="Агенту" value={agentUrl} copyKey="agent" />
               <CopyField label="CLI" value={agentCli} copyKey="cli" />
@@ -363,14 +359,29 @@ function InviteView({ roomId, invite }: { roomId: string; invite: string }) {
   );
 }
 
-// --- Экран 4: страница для агента (человек кидает эту ссылку Codex / Claude Code) ---
+// --- Экран 4: страница для агента. Главную ссылку (/a/...) человек отправляет Codex / Claude Code ---
 function AgentView({ roomId, side, token }: { roomId: string; side: Side; token: string }) {
   const { snapshot } = usePublicRoom(roomId);
   const origin = window.location.origin;
   const cli = buildAgentCli(wsOrigin(), roomId, side, token);
-  const stateCurl = `curl "${agentStateUrl(origin, roomId, side, token)}"`;
-  const brief = agentBrief(origin, roomId, side, token);
+  const briefUrl = `${origin}/a/${encodeURIComponent(roomId)}/${side}/${encodeURIComponent(token)}`;
+  const stateCurl = `curl "${origin}/api/rooms/${encodeURIComponent(roomId)}/agent-state?role=${side}&token=${encodeURIComponent(token)}"`;
+  const [brief, setBrief] = useState('Загружаем бриф с сервера...');
   const [, copied] = useCopy();
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(briefUrl);
+        if (alive) setBrief(await res.text());
+      } catch {
+        if (alive) setBrief('Не удалось загрузить бриф. Проверьте связь с сервером.');
+      }
+    })();
+    return () => { alive = false; };
+  }, [briefUrl]);
+
   return (
     <>
       <section className="agent-task">
@@ -380,17 +391,17 @@ function AgentView({ roomId, side, token }: { roomId: string; side: Side; token:
         </div>
         <h2>Инструкции агенту {side}</h2>
         <ol>
-          <li>Скопируй бриф ниже целиком и отправь своему агенту (Codex, Claude Code) — ему хватит одного curl.</li>
-          <li>Или запусти детерминированный CLI из терминала командой ниже.</li>
+          <li>Отправь своему агенту (Codex, Claude Code) <strong>ссылку-бриф ниже</strong> — он прочитает её сам через curl и начнёт торговаться.</li>
+          <li>Или запусти детерминированный CLI из терминала (нужны числовые лимиты в условиях).</li>
           <li>Условия уже введены человеком — агент прочитает их с сервера сам.</li>
-          <li>Финал смотри в общей ленте: ACCEPT или REJECT. Лимиты не раскрывай.</li>
+          <li>Финал смотри в общей ленте: ACCEPT или REJECT.</li>
         </ol>
         <div className="link-grid" style={{ marginTop: 12 }}>
-          <CopyField label="Бриф" value={brief} copyKey="brief" />
+          <CopyField label="Агенту (бриф-ссылка)" value={briefUrl} copyKey="brieflink" />
           <CopyField label="State" value={stateCurl} copyKey="state" />
           <CopyField label="CLI" value={cli} copyKey="cli" />
         </div>
-        <pre className="agent-machine-instructions">{brief}</pre>
+        <pre className="agent-machine-instructions" style={{ position: 'static', width: 'auto', height: 'auto', clip: 'auto', overflow: 'auto', maxHeight: 320, whiteSpace: 'pre-wrap', marginTop: 12 }}>{brief}</pre>
         {copied && <p className="panel-help">Скопировано: {copied}</p>}
       </section>
       <section className="negotiation-panel room-window">

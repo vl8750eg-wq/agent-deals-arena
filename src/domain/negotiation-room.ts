@@ -15,9 +15,12 @@ export const DealTermSchema = z.object({
 });
 
 export const OpponentConditionsSchema = z.object({
-  desiredPrice: z.number().finite().nonnegative(),
-  walkAwayPrice: z.number().finite().nonnegative(),
-  notes: z.string().trim().max(2_000),
+  // Единственное обязательное поле: человек описывает сделку своими словами.
+  // Числовые лимиты опциональны: нужны детерминированному CLI и серверному gate;
+  // LLM-агенты (Codex/Claude) понимают текст сами.
+  text: z.string().trim().min(1).max(2_000),
+  desiredPrice: z.number().finite().nonnegative().optional(),
+  walkAwayPrice: z.number().finite().nonnegative().optional(),
 });
 
 export type DealTerm = z.infer<typeof DealTermSchema>;

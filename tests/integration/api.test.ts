@@ -95,7 +95,7 @@ describe('arena full flow', () => {
 
     // 2. Чужие токены не проходят
     expect((await get(`/api/rooms/${roomId}/view?owner=nope`)).status).toBe(403);
-    expect((await post(`/api/rooms/${roomId}/conditions`, { owner: 'nope', conditions: { desiredPrice: 1, walkAwayPrice: 2, notes: '' } })).status).toBe(400);
+    expect((await post(`/api/rooms/${roomId}/conditions`, { owner: 'nope', conditions: { desiredPrice: 1, walkAwayPrice: 2, text: 'Deal terms.' } })).status).toBe(400);
     expect((await post(`/api/rooms/${roomId}/claim`, { invite: 'nope' })).status).toBe(400);
 
     // 3. Человек A вводит условия
@@ -106,7 +106,7 @@ describe('arena full flow', () => {
 
     const condA = await post(`/api/rooms/${roomId}/conditions`, {
       owner: decodeURIComponent(ownerA),
-      conditions: { desiredPrice: 100, walkAwayPrice: 130, notes: 'buyer' },
+      conditions: { desiredPrice: 100, walkAwayPrice: 130, text: 'Buyer terms: pay up to 130.' },
     });
     expect(condA.data.status).toBe('WAITING_FOR_SUBMISSIONS');
 
@@ -117,7 +117,7 @@ describe('arena full flow', () => {
 
     const condB = await post(`/api/rooms/${roomId}/conditions`, {
       owner: ownerB,
-      conditions: { desiredPrice: 150, walkAwayPrice: 120, notes: 'seller' },
+      conditions: { desiredPrice: 150, walkAwayPrice: 120, text: 'Seller terms: sell from 120.' },
     });
     expect(condB.data.status).toBe('IN_NEGOTIATION');
 
@@ -205,21 +205,21 @@ describe('arena full flow', () => {
 
     // Направление условий: A — покупатель, B — продавец
     const badA = await post(`/api/rooms/${roomId}/conditions`, {
-      owner: ownerA, conditions: { desiredPrice: 200, walkAwayPrice: 100, notes: '' },
+      owner: ownerA, conditions: { desiredPrice: 200, walkAwayPrice: 100, text: 'Deal terms.' },
     });
     expect(badA.status).toBe(400);
     const claim = await post(`/api/rooms/${roomId}/claim`, { invite });
     const ownerB = claim.data.ownerToken as string;
     const badB = await post(`/api/rooms/${roomId}/conditions`, {
-      owner: ownerB, conditions: { desiredPrice: 100, walkAwayPrice: 200, notes: '' },
+      owner: ownerB, conditions: { desiredPrice: 100, walkAwayPrice: 200, text: 'Deal terms.' },
     });
     expect(badB.status).toBe(400);
 
     await post(`/api/rooms/${roomId}/conditions`, {
-      owner: ownerA, conditions: { desiredPrice: 100, walkAwayPrice: 130, notes: 'buyer' },
+      owner: ownerA, conditions: { desiredPrice: 100, walkAwayPrice: 130, text: 'Buyer terms: pay up to 130.' },
     });
     await post(`/api/rooms/${roomId}/conditions`, {
-      owner: ownerB, conditions: { desiredPrice: 150, walkAwayPrice: 120, notes: 'seller' },
+      owner: ownerB, conditions: { desiredPrice: 150, walkAwayPrice: 120, text: 'Seller terms: sell from 120.' },
     });
 
     const tokA = (await get(`/api/rooms/${roomId}/view?owner=${encodeURIComponent(ownerA)}`)).data.agentToken as string;
@@ -268,5 +268,34 @@ describe('arena full flow', () => {
     expect(fin.status).toBe(200);
     expect(fin.data.status).toBe('DEAL_AGREED');
     expect(fin.data.result).toMatchObject({ price: 125, acceptedBy: 'SIDE_B' });
+  });
+
+  it('serves a curl-readable brief and accepts text-only conditions', async () => {
+    const created = await post('/api/rooms', { origin: BASE, lotTitle: 'Brief', maxRounds: 10 });
+    const roomId = created.data.roomId as string;
+    const ownerA = decodeURIComponent(new URL(created.data.ownerUrlA).hash.match(/owner=([^&]+)/)![1]);
+
+    // Текстовые условия без чисел — валидны, gate пропускает (нечего проверять)
+    const cond = await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerA, conditions: { text: 'Куплю ноутбук, договоримся по ходу' },
+    });
+    expect(cond.status).toBe(200);
+    const view = await get(`/api/rooms/${roomId}/view?owner=${encodeURIComponent(ownerA)}`);
+    expect(view.data.ownConditions.text).toContain('ноутбук');
+    expect(view.data.ownConditions.walkAwayPrice).toBeUndefined();
+    const tokA = view.data.agentToken as string;
+
+    // Бриф plain-text: свой токен — 200 с curl-командами, чужой — 404 без утечек
+    const briefRes = await fetch(`${BASE}/a/${roomId}/SIDE_A/${tokA}`);
+    expect(briefRes.status).toBe(200);
+    expect(briefRes.headers.get('content-type')).toContain('text/plain');
+    const brief = await briefRes.text();
+    expect(brief).toContain('SIDE_A');
+    expect(brief).toContain('curl');
+    expect(brief).toContain(`/api/rooms/${roomId}/agent-state`);
+
+    const badBrief = await fetch(`${BASE}/a/${roomId}/SIDE_A/nope`);
+    expect(badBrief.status).toBe(404);
+    expect(await badBrief.text()).not.toContain(tokA);
   });
 });

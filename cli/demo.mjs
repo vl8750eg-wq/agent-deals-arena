@@ -38,7 +38,7 @@ const viewA = await (await fetch(`${httpServer}/api/rooms/${room.roomId}/view?ow
 await post(`/api/rooms/${room.roomId}/conditions`, {
   owner: decodeURIComponent(ownerA),
   origin,
-  conditions: { desiredPrice: 100, walkAwayPrice: 130, notes: 'Самовывоз в выходные' },
+  conditions: { text: 'Покупаю лот, готов заплатить до 130', desiredPrice: 100, walkAwayPrice: 130 },
 });
 
 // 3. Оппонент открывает инвайт и вводит свои условия (продавец: хочу 150, предел 120)
@@ -47,7 +47,7 @@ const claim = await post(`/api/rooms/${room.roomId}/claim`, { invite: decodeURIC
 await post(`/api/rooms/${room.roomId}/conditions`, {
   owner: claim.ownerToken,
   origin,
-  conditions: { desiredPrice: 150, walkAwayPrice: 120, notes: 'Торг уместен' },
+  conditions: { text: 'Продаю лот, отдам от 120', desiredPrice: 150, walkAwayPrice: 120 },
 });
 
 // 4. Оба человека отправляют agent-ссылки своим агентам → агенты стартуют в CLI
