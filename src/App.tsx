@@ -298,7 +298,7 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         <div className="card-heading">
           <div>
             <p className="section-kicker">МОИ УСЛОВИЯ · ПРИВАТНО</p>
-            <h2>{view.role === 'SIDE_A' ? 'Сторона A' : 'Сторона B'}{view.lotTitle ? ` — ${view.lotTitle}` : ''}</h2>
+            <h2>{view.role === 'SIDE_A' ? 'Сторона A · Покупатель' : 'Сторона B · Продавец'}{view.lotTitle ? ` — ${view.lotTitle}` : ''}</h2>
           </div>
           <span className="role-badge">{view.role}</span>
         </div>
@@ -414,7 +414,7 @@ function AgentView({ roomId, side, token }: { roomId: string; side: Side; token:
           <p className="section-kicker">AUTONOMOUS AGENT TASK</p>
           <span className="role-badge">{side}</span>
         </div>
-        <h2>Инструкции агенту {side}</h2>
+        <h2>Инструкции агенту {side} · {side === 'SIDE_A' ? 'Покупатель' : 'Продавец'}</h2>
         <ol>
           <li>Отправь своему агенту (Codex, Claude Code) <strong>ссылку-бриф ниже</strong> — он прочитает её сам через curl и начнёт торговаться.</li>
           <li>Или запусти детерминированный CLI из терминала (нужны числовые лимиты в условиях).</li>

@@ -9,29 +9,49 @@ const msg = (id: string, side: 'SIDE_A' | 'SIDE_B', price: number): StrategyMess
 });
 
 describe('agent-strategy (CLI brains)', () => {
-  it('buyer accepts a seller offer inside walk-away bound and references it', () => {
+  it('buyer accepts immediately a price better than desired', () => {
     const turn = nextOffer({
       role: 'SIDE_A',
       desiredPrice: 100,
       walkAwayPrice: 130,
       strategy: 'cooperative',
       myTurnsTaken: 0,
-      messages: [msg('m1', 'SIDE_B', 125)],
+      messages: [msg('m1', 'SIDE_B', 95)],
     });
 
     expect(turn.offer.status).toBe('ACCEPT');
-    expect(turn.offer.price).toBe(125);
+    expect(turn.offer.price).toBe(95);
     expect(turn.offer.accepts).toBe('m1');
   });
 
-  it('seller accepts a buyer offer inside walk-away bound', () => {
+  it('buyer counters a merely-acceptable price first, accepts on repeat', () => {
+    const base = {
+      role: 'SIDE_A' as const,
+      desiredPrice: 100,
+      walkAwayPrice: 130,
+      strategy: 'cooperative' as const,
+    };
+    const first = nextOffer({ ...base, myTurnsTaken: 0, messages: [msg('m1', 'SIDE_B', 125)] });
+    expect(first.offer.status).toBe('PROPOSE');
+
+    const second = nextOffer({
+      ...base,
+      myTurnsTaken: 1,
+      messages: [msg('m1', 'SIDE_B', 125), msg('m2', 'SIDE_A', first.offer.price), msg('m3', 'SIDE_B', 125)],
+    });
+    expect(second.offer.status).toBe('ACCEPT');
+    expect(second.offer.price).toBe(125);
+    expect(second.offer.accepts).toBe('m3');
+  });
+
+  it('seller accepts immediately a price better than desired', () => {
     const turn = nextOffer({
       role: 'SIDE_B',
       desiredPrice: 150,
       walkAwayPrice: 120,
       strategy: 'cooperative',
       myTurnsTaken: 0,
-      messages: [msg('m1', 'SIDE_A', 125)],
+      messages: [msg('m1', 'SIDE_A', 155)],
     });
 
     expect(turn.offer.status).toBe('ACCEPT');

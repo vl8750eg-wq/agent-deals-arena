@@ -62,17 +62,24 @@ export function nextOffer(input) {
   const myLast = [...messages].reverse().find((m) => m.side === role);
 
   const acceptable = (price) => (isBuyer ? price <= walkAwayPrice : price >= walkAwayPrice);
+  // Отличная сделка — не хуже желаемой цены: забираем сразу.
+  const great = (price) => (isBuyer ? price <= desiredPrice : price >= desiredPrice);
 
+  const oppProposes = messages.filter((m) => m.side !== role && m.offer.status === 'PROPOSE');
   if (opponentLast && acceptable(opponentLast.offer.price)) {
-    return {
-      offer: { price: opponentLast.offer.price, currency: 'USD', terms: [], status: 'ACCEPT', accepts: opponentLast.id },
-      message: `Договорились! Принимаю ${opponentLast.offer.price} USD. Спасибо за конструктивный торг!`,
-    };
+    const repeats = oppProposes.filter((m) => m.offer.price === opponentLast.offer.price).length;
+    // Соглашаемся сразу только на отличную цену; приемлемую, но хуже желаемой —
+    // сначала контрудар с аргументами, согласие при повторе. Иначе торга не будет вообще.
+    if (great(opponentLast.offer.price) || repeats >= 2) {
+      return {
+        offer: { price: opponentLast.offer.price, currency: 'USD', terms: [], status: 'ACCEPT', accepts: opponentLast.id },
+        message: `Договорились! Принимаю ${opponentLast.offer.price} USD. Спасибо за конструктивный торг!`,
+      };
+    }
   }
 
   // Нет ZOPA: оппонент трижды повторил одну и ту же неприемлемую цену —
   // дальше топтаться нет смысла, честно выходим REJECT вместо лимита раундов.
-  const oppProposes = messages.filter((m) => m.side !== role && m.offer.status === 'PROPOSE');
   const lastThree = oppProposes.slice(-3);
   if (
     lastThree.length === 3 &&

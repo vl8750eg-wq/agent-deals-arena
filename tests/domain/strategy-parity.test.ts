@@ -19,7 +19,7 @@ const fixtures: StrategyInput[] = [
   },
   {
     role: 'SIDE_A', desiredPrice: 100, walkAwayPrice: 130, strategy: 'cooperative', myTurnsTaken: 2,
-    messages: [{ id: 'm9', side: 'SIDE_B', offer: { price: 125, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'deal?' }],
+    messages: [{ id: 'm9', side: 'SIDE_B', offer: { price: 95, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'deal?' }],
   },
   {
     role: 'SIDE_B', desiredPrice: 30000, walkAwayPrice: 30000, strategy: 'cooperative', myTurnsTaken: 3,
