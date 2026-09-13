@@ -135,6 +135,8 @@ export function createStore() {
       otherSubmitted: Boolean(room.sides[side === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A'].conditions),
       agentToken: own.agentToken,
       agentHash: `#r=${room.id}&agent=${side}&token=${own.agentToken}`,
+      // Инвайт оппонента видит только создатель комнаты (сторона A).
+      inviteHash: side === 'SIDE_A' ? `#r=${room.id}&invite=${room.inviteToken}` : null,
     };
   };
 

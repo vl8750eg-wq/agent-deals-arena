@@ -46,6 +46,7 @@ type OwnerSnapshot = PublicSnapshot & {
   otherSubmitted: boolean;
   agentToken: string;
   agentHash: string;
+  inviteHash: string | null;
 };
 
 const STATUS_LABEL: Record<PublicSnapshot['status'], string> = {
@@ -156,12 +157,14 @@ function ResultBanner({ result }: { result: PublicSnapshot['result'] }) {
   return <div className="result-banner">FAILED — {result.reason}</div>;
 }
 
-function CopyField({ label, value, copyKey }: { label: string; value: string; copyKey: string }) {
+function CopyField({ label, value, copyKey, href }: { label: string; value: string; copyKey: string; href?: string }) {
   const [copy, copied] = useCopy();
   return (
     <div className="role-link">
       <span>{label}</span>
-      <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
+      {href
+        ? <a className="link-value" href={href} target="_blank" rel="noreferrer" title={value}>{value}</a>
+        : <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} />}
       <button className="secondary-button" type="button" onClick={() => copy(copyKey, value)}>{copied === copyKey ? 'Скопировано' : 'Копировать'}</button>
     </div>
   );
@@ -188,8 +191,16 @@ function HomeView() {
         setNotice(payload.error ?? 'Не удалось создать комнату.');
         return;
       }
-      setCreated(payload);
-      setNotice('');
+      // Сразу открываем мою комнату: всё нужное (инвайт, агент) — внутри неё.
+      try {
+        const token = new URL(payload.ownerUrlA).hash.match(/owner=([^&]+)/)?.[1];
+        if (!token) throw new Error('no owner token');
+        window.location.hash = `r=${payload.roomId}&owner=${token}`;
+        return;
+      } catch {
+        setCreated(payload);
+        setNotice('Комната создана, но открыть её автоматически не вышло — ссылки ниже.');
+      }
     } catch {
       setNotice('Нет связи с сервером. Запустите `npm run dev:api`.');
     }
@@ -212,9 +223,9 @@ function HomeView() {
           <p className="section-kicker">ШАГ 2 — ССЫЛКИ</p>
           <h2>Три ссылки на комнату</h2>
           <div className="link-grid">
-            <CopyField label="Моя (A)" value={created.ownerUrlA} copyKey="a" />
-            <CopyField label="Опоненту" value={created.inviteUrl} copyKey="inv" />
-            <CopyField label="Наблюдать" value={created.observerUrl} copyKey="obs" />
+            <CopyField label="Моя (A)" value={created.ownerUrlA} copyKey="a" href={created.ownerUrlA} />
+            <CopyField label="Опоненту" value={created.inviteUrl} copyKey="inv" href={created.inviteUrl} />
+            <CopyField label="Наблюдать" value={created.observerUrl} copyKey="obs" href={created.observerUrl} />
           </div>
           <p className="panel-help">Откройте «Мою» ссылку и введите свои условия. Инвайт отправьте оппоненту.</p>
         </section>
@@ -278,6 +289,8 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
 
   const agentUrl = `${window.location.origin}/${view.agentHash}`;
   const agentCli = buildAgentCli(wsOrigin(), roomId, view.role, view.agentToken);
+  const briefUrl = `${window.location.origin}/a/${encodeURIComponent(roomId)}/${view.role}/${encodeURIComponent(view.agentToken)}`;
+  const inviteUrl = view.inviteHash ? `${window.location.origin}/${view.inviteHash}` : null;
 
   return (
     <>
@@ -298,10 +311,22 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         ) : (
           <>
             <p className="panel-help">Ваши условия: «{view.ownConditions!.text}»{view.ownConditions!.walkAwayPrice !== undefined ? ` · числовой предел: ${view.ownConditions!.walkAwayPrice}` : ''}</p>
+            {inviteUrl && (
+              <>
+                <p className="section-kicker" style={{ marginTop: 18 }}>ОППОНЕНТ</p>
+                <div className="link-grid">
+                  <CopyField label="Опоненту" value={inviteUrl} copyKey="invite" href={inviteUrl} />
+                </div>
+                <p className="panel-help">Отправь эту ссылку оппоненту — он введёт свои условия и получит ссылку для своего агента.</p>
+              </>
+            )}
+            <p className="section-kicker" style={{ marginTop: 18 }}>МОЙ АГЕНТ</p>
             <div className="link-grid">
-              <CopyField label="Агенту" value={agentUrl} copyKey="agent" />
+              <CopyField label="Агенту" value={briefUrl} copyKey="agent" href={briefUrl} />
+              <CopyField label="Страница" value={agentUrl} copyKey="agentpage" href={agentUrl} />
               <CopyField label="CLI" value={agentCli} copyKey="cli" />
             </div>
+            <p className="panel-help">Бриф-ссылку отправь Codex / Claude Code — он начнёт торговаться сам. CLI — для терминала.</p>
             <div className="readiness">
               <span className={view.agentOnline[view.role] ? 'ready' : ''}>Мой агент {view.agentOnline[view.role] ? 'в комнате' : 'не запущен'}</span>
               <span className={view.otherSubmitted ? 'ready' : ''}>Опонент {view.otherSubmitted ? 'ввёл условия' : 'ещё не ввёл'}</span>
@@ -397,7 +422,7 @@ function AgentView({ roomId, side, token }: { roomId: string; side: Side; token:
           <li>Финал смотри в общей ленте: ACCEPT или REJECT.</li>
         </ol>
         <div className="link-grid" style={{ marginTop: 12 }}>
-          <CopyField label="Агенту (бриф-ссылка)" value={briefUrl} copyKey="brieflink" />
+          <CopyField label="Агенту (бриф-ссылка)" value={briefUrl} copyKey="brieflink" href={briefUrl} />
           <CopyField label="State" value={stateCurl} copyKey="state" />
           <CopyField label="CLI" value={cli} copyKey="cli" />
         </div>

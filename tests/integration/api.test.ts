@@ -102,6 +102,7 @@ describe('arena full flow', () => {
     const viewA0 = await get(`/api/rooms/${roomId}/view?owner=${ownerA}`);
     expect(viewA0.data.role).toBe('SIDE_A');
     expect(viewA0.data.ownConditions).toBeNull();
+    expect(viewA0.data.inviteHash).toContain('invite=');
     const agentTokenA = viewA0.data.agentToken as string;
 
     const condA = await post(`/api/rooms/${roomId}/conditions`, {
@@ -123,6 +124,7 @@ describe('arena full flow', () => {
 
     const viewB = await get(`/api/rooms/${roomId}/view?owner=${ownerB}`);
     const agentTokenB = viewB.data.agentToken as string;
+    expect(viewB.data.inviteHash).toBeNull();
 
     // 5. Наблюдатель: торг идёт, приватного ничего нет
     const pub = await get(`/api/rooms/${roomId}`);
