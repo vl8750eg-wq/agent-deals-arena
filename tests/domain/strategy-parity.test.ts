@@ -31,6 +31,10 @@ const fixtures: StrategyInput[] = [
       { id: 'm5', side: 'SIDE_A', offer: { price: 20000, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'a' },
     ],
   },
+  {
+    role: 'SIDE_A', desiredPrice: 100, walkAwayPrice: 130, strategy: 'cooperative', messages: [], myTurnsTaken: 0,
+    lotTitle: 'Ноутбук',
+  },
 ];
 
 describe('strategy parity (TS domain <-> CLI runtime)', () => {

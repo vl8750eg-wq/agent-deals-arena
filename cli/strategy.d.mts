@@ -15,6 +15,7 @@ export interface StrategyInput {
   strategy: ConcessionStrategy;
   messages: StrategyMessage[];
   myTurnsTaken: number;
+  lotTitle?: string;
 }
 
 export interface StrategyOutput {

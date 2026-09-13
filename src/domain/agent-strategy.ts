@@ -16,6 +16,8 @@ export interface StrategyInput {
   strategy: ConcessionStrategy;
   messages: StrategyMessage[];
   myTurnsTaken: number;
+  /** Название лота — для живых реплик (опционально). */
+  lotTitle?: string;
 }
 
 export interface StrategyOutput {
@@ -34,6 +36,7 @@ export interface StrategyOutput {
 export function nextOffer(input: StrategyInput): StrategyOutput {
   const { role, desiredPrice, walkAwayPrice, strategy, messages, myTurnsTaken } = input;
   const isBuyer = role === 'SIDE_A';
+  const lot = input.lotTitle?.trim() ? ` по лоту «${input.lotTitle.trim().slice(0, 60)}»` : '';
 
   const opponentLast = [...messages].reverse().find((m) => m.side !== role && m.offer.status === 'PROPOSE');
   const myLast = [...messages].reverse().find((m) => m.side === role);
@@ -44,7 +47,7 @@ export function nextOffer(input: StrategyInput): StrategyOutput {
   if (opponentLast && acceptable(opponentLast.offer.price)) {
     return {
       offer: { price: opponentLast.offer.price, currency: 'USD', terms: [], status: 'ACCEPT', accepts: opponentLast.id },
-      message: `Deal! ${opponentLast.offer.price} USD works for me.`,
+      message: `Договорились! Принимаю ${opponentLast.offer.price} USD. Спасибо за конструктивный торг!`,
     };
   }
 
@@ -60,7 +63,7 @@ export function nextOffer(input: StrategyInput): StrategyOutput {
     const price = lastThree[0].offer.price;
     return {
       offer: { price, currency: 'USD', terms: [], status: 'REJECT' },
-      message: `No common ground at ${price} USD — I have to stop here.`,
+      message: `К сожалению, на ${price} USD мы не сходимся — дальше уступать не могу. Спасибо за диалог!`,
     };
   }
 
@@ -75,16 +78,22 @@ export function nextOffer(input: StrategyInput): StrategyOutput {
     const price = clamp(Math.round(myLast.offer.price + step), desiredPrice, walkAwayPrice);
     return {
       offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },
-      message: `I can meet you halfway at ${price} USD.`,
+      message: `Вижу ваши ${opponentLast.offer.price} USD — иду навстречу: ${price} USD. Двигаемся друг к другу!`,
     };
   }
 
   const price = clamp(Math.round(desiredPrice + concession), desiredPrice, walkAwayPrice);
+  if (myTurnsTaken === 0) {
+    return {
+      offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },
+      message: `Здравствуйте!${lot} предлагаю ${price} USD — считаю это честной стартовой ценой.`,
+    };
+  }
   const polite = strategy === 'firm'
-    ? `My position is firm, but I can offer ${price} USD.`
+    ? `Могу предложить ${price} USD — это мой предел, дальше уступить, увы, не получится.`
     : strategy === 'mirror'
-      ? `I see your move — my counter is ${price} USD.`
-      : `In a cooperative spirit, I propose ${price} USD.`;
+      ? `Отвечаю ${price} USD — сближаем позиции шаг за шагом.`
+      : `Готов подвинуться до ${price} USD — давайте договоримся, вещь того стоит!`;
 
   return {
     offer: { price, currency: 'USD', terms: [], status: 'PROPOSE' },

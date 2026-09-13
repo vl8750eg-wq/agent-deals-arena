@@ -1,0 +1,5 @@
+[22:44:02] [SIDE_A] connecting to wss://agent-deals-arena.onrender.com/ws?room=d3865999-c56c-453f-8d2d-437ddd4d7d92&role=SIDE_A&token=mO_Y1ah6MLqSnG0di3NTZWhk
+[22:44:03] [SIDE_A] connected. Жду своей очереди — торг начнётся сам.
+[22:44:03] [SIDE_A] -> SIDE_A: PROPOSE 20000 USD — "In a cooperative spirit, I propose 20000 USD."
+[22:44:03] [SIDE_A] жду хода SIDE_B (раунд 1/20)…
+[22:44:03] [SIDE_A] очередь хода: SIDE_B

@@ -69,6 +69,23 @@ describe('agent-strategy (CLI brains)', () => {
     expect(turn.offer.price).toBeLessThanOrEqual(130);
   });
 
+  it('speaks like a human: greeting, lot and price in the first offer', () => {
+    const turn = nextOffer({
+      role: 'SIDE_A',
+      desiredPrice: 100,
+      walkAwayPrice: 130,
+      strategy: 'cooperative',
+      myTurnsTaken: 0,
+      messages: [],
+      lotTitle: 'Ноутбук',
+    });
+
+    expect(turn.offer.status).toBe('PROPOSE');
+    expect(turn.message).toContain('Здравствуйте');
+    expect(turn.message).toContain('Ноутбук');
+    expect(turn.message).toContain(String(turn.offer.price));
+  });
+
   it('rejects early when the opponent repeats an unacceptable price three times', () => {
     const turn = nextOffer({
       role: 'SIDE_B',
