@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ConductRules } from './domain/negotiation-room';
-import { buildAgentCli, parseHash } from './domain/room-link';
+import { buildAgentCli, parseHash, agentStateUrl, agentBrief } from './domain/room-link';
 
 // Веб-интерфейс Арены. Люди вводят условия и наблюдают; торгуют только CLI-агенты.
 //
@@ -294,8 +294,8 @@ function OwnerView({ roomId, owner }: { roomId: string; owner: string }) {
         {!view.ownSubmitted ? (
           <form onSubmit={submit}>
             <p className="panel-help">Опонент и его агент этих цифр не увидят. Агент получит их автоматически.</p>
-            <label>Желаемая цена<input type="number" min={0} required value={desired} onChange={(e) => setDesired(e.target.value)} /></label>
-            <label>Предел (walk-away)<input type="number" min={0} required value={walkaway} onChange={(e) => setWalkaway(e.target.value)} /></label>
+            <label>{view.role === 'SIDE_A' ? 'Желаемая цена (покупатель: ниже предела)' : 'Желаемая цена (продавец: выше предела)'}<input type="number" min={0} required value={desired} onChange={(e) => setDesired(e.target.value)} /></label>
+            <label>Предел (walk-away): {view.role === 'SIDE_A' ? 'максимум, который готов заплатить' : 'минимум, за который готов отдать'}<input type="number" min={0} required value={walkaway} onChange={(e) => setWalkaway(e.target.value)} /></label>
             <label>Заметки для агента<textarea value={notes} placeholder="Что важно кроме цены?" onChange={(e) => setNotes(e.target.value)} /></label>
             <button className="primary-button" type="submit" style={{ marginTop: 16 }}>Сохранить условия</button>
           </form>
@@ -363,14 +363,14 @@ function InviteView({ roomId, invite }: { roomId: string; invite: string }) {
   );
 }
 
-const AGENT_INSTRUCTIONS = (side: Side) =>
-  `You are the ${side} negotiation agent. Act now. 1) Your human already entered private deal conditions on the server — read them from your CLI room_state (ownConditions). 2) Connect via the CLI command on this page and wait until both sides have submitted. 3) On your turn (nextTurn == ${side}) send one structured offer: PROPOSE with price/currency, ACCEPT referencing the opponent PROPOSE id via "accepts", or REJECT. 4) Keep messages polite, mention price and currency, never reveal private walk-away limits, never insult. Repeat until ACCEPT or REJECT.`;
-
-// --- Экран 4: страница для агента ---
+// --- Экран 4: страница для агента (человек кидает эту ссылку Codex / Claude Code) ---
 function AgentView({ roomId, side, token }: { roomId: string; side: Side; token: string }) {
   const { snapshot } = usePublicRoom(roomId);
+  const origin = window.location.origin;
   const cli = buildAgentCli(wsOrigin(), roomId, side, token);
-  const [copy, copied] = useCopy();
+  const stateCurl = `curl "${agentStateUrl(origin, roomId, side, token)}"`;
+  const brief = agentBrief(origin, roomId, side, token);
+  const [, copied] = useCopy();
   return (
     <>
       <section className="agent-task">
@@ -380,19 +380,18 @@ function AgentView({ roomId, side, token }: { roomId: string; side: Side; token:
         </div>
         <h2>Инструкции агенту {side}</h2>
         <ol>
-          <li>Прочитай правила и свои приватные условия (придут по WS после подключения).</li>
-          <li>Подключись командой ниже и жди, пока обе стороны введут условия.</li>
-          <li>На своём ходу отправь один структурированный оффер.</li>
-          <li>Повторяй до ACCEPT или REJECT. Лимиты не раскрывай.</li>
+          <li>Скопируй бриф ниже целиком и отправь своему агенту (Codex, Claude Code) — ему хватит одного curl.</li>
+          <li>Или запусти детерминированный CLI из терминала командой ниже.</li>
+          <li>Условия уже введены человеком — агент прочитает их с сервера сам.</li>
+          <li>Финал смотри в общей ленте: ACCEPT или REJECT. Лимиты не раскрывай.</li>
         </ol>
         <div className="link-grid" style={{ marginTop: 12 }}>
-          <div className="role-link">
-            <span>CLI</span>
-            <input readOnly value={cli} onFocus={(e) => e.currentTarget.select()} />
-            <button className="secondary-button" type="button" onClick={() => copy('cli', cli)}>{copied ? 'Скопировано' : 'Копировать'}</button>
-          </div>
+          <CopyField label="Бриф" value={brief} copyKey="brief" />
+          <CopyField label="State" value={stateCurl} copyKey="state" />
+          <CopyField label="CLI" value={cli} copyKey="cli" />
         </div>
-        <pre className="agent-machine-instructions">{AGENT_INSTRUCTIONS(side)}</pre>
+        <pre className="agent-machine-instructions">{brief}</pre>
+        {copied && <p className="panel-help">Скопировано: {copied}</p>}
       </section>
       <section className="negotiation-panel room-window">
         <div className="panel-heading">

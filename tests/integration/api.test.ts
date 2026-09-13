@@ -156,28 +156,117 @@ describe('arena full flow', () => {
       () => agentA.states.find((s) => s.messages.length === 1 && s.nextTurn === 'SIDE_B'),
       'turn flip to B',
     );
-    const proposeId = afterPropose.messages[0].id as string;
+    void afterPropose;
 
     agentA.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 111, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'Again' }));
     await waitFor(() => agentA.errors.find((e) => e.includes('Not your turn')), 'wrong-turn error');
 
-    // 9. Агент B: битый ACCEPT отвергается, корректный — завершает сделкой
+    // 9. Сходимся в ZOPA через контр-предложения (gate не даёт принять за пределом)
     const agentB = await connectAgent(roomId, 'SIDE_B', agentTokenB);
     await waitFor(() => agentB.states.find((s) => s.messages.length === 1), 'agent B first state');
 
-    agentB.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 120, currency: 'USD', terms: [], status: 'ACCEPT', accepts: 'wrong-id' }, message: 'Deal?' }));
-    await waitFor(() => agentB.errors.find((e) => e.includes('ACCEPT must reference')), 'bad-accept error');
+    agentB.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 140, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'Take 140' }));
+    const afterCounter = await waitFor(
+      () => agentB.states.find((s) => s.messages.length === 2 && s.nextTurn === 'SIDE_A'),
+      'counter propose',
+    );
+    const counterId = afterCounter.messages[1].id as string;
 
-    agentB.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 110, currency: 'USD', terms: [], status: 'ACCEPT', accepts: proposeId }, message: 'Deal!' }));
+    // Покупатель не может принять 140 (предел 130) — только контр-предложение
+    agentA.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 140, currency: 'USD', terms: [], status: 'ACCEPT', accepts: counterId }, message: 'ok' }));
+    await waitFor(() => agentA.errors.find((e) => e.includes('walk-away')), 'accept-over-limit error');
+
+    agentA.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 125, currency: 'USD', terms: [], status: 'PROPOSE' }, message: 'Meet at 125' }));
+    const final = await waitFor(
+      () => agentA.states.find((s) => s.messages.length === 3 && s.nextTurn === 'SIDE_B'),
+      'final propose',
+    );
+    const finalId = final.messages[2].id as string;
+
+    agentB.ws.send(JSON.stringify({ type: 'post_message', offer: { price: 125, currency: 'USD', terms: [], status: 'ACCEPT', accepts: finalId }, message: 'Deal!' }));
     const done = await waitFor(() => agentB.states.find((s) => s.status === 'DEAL_AGREED'), 'deal agreed');
 
-    expect(done.result).toMatchObject({ status: 'DEAL_AGREED', price: 110, currency: 'USD', acceptedBy: 'SIDE_B' });
+    expect(done.result).toMatchObject({ status: 'DEAL_AGREED', price: 125, currency: 'USD', acceptedBy: 'SIDE_B' });
 
     const finalPub = await get(`/api/rooms/${roomId}`);
     expect(finalPub.data.status).toBe('DEAL_AGREED');
-    expect(finalPub.data.result.price).toBe(110);
+    expect(finalPub.data.result.price).toBe(125);
 
     agentA.ws.close();
     agentB.ws.close();
+  });
+
+  it('external LLM agents trade over plain HTTP; walk-away gate holds', async () => {
+    const created = await post('/api/rooms', { origin: BASE, lotTitle: 'HTTP gates', maxRounds: 10 });
+    expect(created.status).toBe(201);
+    const roomId = created.data.roomId as string;
+    const ownerA = decodeURIComponent(new URL(created.data.ownerUrlA).hash.match(/owner=([^&]+)/)![1]);
+    const invite = decodeURIComponent(new URL(created.data.inviteUrl).hash.match(/invite=([^&]+)/)![1]);
+
+    // Направление условий: A — покупатель, B — продавец
+    const badA = await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerA, conditions: { desiredPrice: 200, walkAwayPrice: 100, notes: '' },
+    });
+    expect(badA.status).toBe(400);
+    const claim = await post(`/api/rooms/${roomId}/claim`, { invite });
+    const ownerB = claim.data.ownerToken as string;
+    const badB = await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerB, conditions: { desiredPrice: 100, walkAwayPrice: 200, notes: '' },
+    });
+    expect(badB.status).toBe(400);
+
+    await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerA, conditions: { desiredPrice: 100, walkAwayPrice: 130, notes: 'buyer' },
+    });
+    await post(`/api/rooms/${roomId}/conditions`, {
+      owner: ownerB, conditions: { desiredPrice: 150, walkAwayPrice: 120, notes: 'seller' },
+    });
+
+    const tokA = (await get(`/api/rooms/${roomId}/view?owner=${encodeURIComponent(ownerA)}`)).data.agentToken as string;
+    const tokB = (await get(`/api/rooms/${roomId}/view?owner=${encodeURIComponent(ownerB)}`)).data.agentToken as string;
+
+    // agent-state: чужой токен — 403, свой — свои условия
+    expect((await get(`/api/rooms/${roomId}/agent-state?role=SIDE_A&token=nope`)).status).toBe(403);
+    const stA = await get(`/api/rooms/${roomId}/agent-state?role=SIDE_A&token=${tokA}`);
+    expect(stA.data.ownConditions).toMatchObject({ desiredPrice: 100, walkAwayPrice: 130 });
+
+    const act = (role: string, token: string, offer: unknown, message: string) =>
+      post(`/api/rooms/${roomId}/agent-message`, { role, token, offer, message });
+
+    // Покупатель не может предложить выше своего предела
+    const over = await act('SIDE_A', tokA, { price: 999, currency: 'USD', terms: [], status: 'PROPOSE' }, 'too much');
+    expect(over.status).toBe(400);
+    expect(over.data.error).toContain('walk-away');
+
+    // Корректный PROPOSE через HTTP
+    const p1 = await act('SIDE_A', tokA, { price: 110, currency: 'USD', terms: [], status: 'PROPOSE' }, 'Take 110');
+    expect(p1.status).toBe(200);
+    expect(p1.data.nextTurn).toBe('SIDE_B');
+    const proposeId = p1.data.messages[0].id as string;
+
+    // ACCEPT с чужой ссылкой отвергается
+    const wrongRef = await act('SIDE_B', tokB, { price: 130, currency: 'USD', terms: [], status: 'ACCEPT', accepts: 'no-such-id' }, 'ok');
+    expect(wrongRef.status).toBe(400);
+    expect(wrongRef.data.error).toContain('ACCEPT must reference');
+
+    // Продавец не может принять ниже своего предела
+    const cheap = await act('SIDE_B', tokB, { price: 110, currency: 'USD', terms: [], status: 'ACCEPT', accepts: proposeId }, 'ok');
+    expect(cheap.status).toBe(400);
+
+    // Продавец предлагает 140, покупатель не может принять выше своего предела
+    const p2 = await act('SIDE_B', tokB, { price: 140, currency: 'USD', terms: [], status: 'PROPOSE' }, 'Take 140');
+    expect(p2.status).toBe(200);
+    const p2id = p2.data.messages[1].id as string;
+    const rich = await act('SIDE_A', tokA, { price: 140, currency: 'USD', terms: [], status: 'ACCEPT', accepts: p2id }, 'ok');
+    expect(rich.status).toBe(400);
+
+    // Сходимся в ZOPA: 125
+    const p3 = await act('SIDE_A', tokA, { price: 125, currency: 'USD', terms: [], status: 'PROPOSE' }, 'Meet at 125');
+    expect(p3.status).toBe(200);
+    const p3id = p3.data.messages[2].id as string;
+    const fin = await act('SIDE_B', tokB, { price: 125, currency: 'USD', terms: [], status: 'ACCEPT', accepts: p3id }, 'Deal!');
+    expect(fin.status).toBe(200);
+    expect(fin.data.status).toBe('DEAL_AGREED');
+    expect(fin.data.result).toMatchObject({ price: 125, acceptedBy: 'SIDE_B' });
   });
 });

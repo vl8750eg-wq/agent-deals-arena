@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agentBrief,
+  agentMessageUrl,
+  agentStateUrl,
   buildAgentCli,
   buildAgentUrl,
   buildInviteUrl,
@@ -35,5 +38,15 @@ describe('room-link', () => {
     const cmd = buildAgentCli('ws://127.0.0.1:8787', 'room-1', 'SIDE_A', 'tok');
     expect(cmd).toBe('node cli/agent.mjs --server=ws://127.0.0.1:8787 --room=room-1 --role=SIDE_A --token=tok --strategy=cooperative');
     expect(buildAgentUrl('https://x.test', 'room-1', 'SIDE_A', 'tok')).toContain('agent=SIDE_A');
+  });
+
+  it('builds a self-sufficient curl brief for external LLM agents', () => {
+    const brief = agentBrief('https://arena.test', 'room-1', 'SIDE_A', 'tok123');
+    expect(brief).toContain('SIDE_A');
+    expect(brief).toContain('tok123');
+    expect(brief).toContain(agentStateUrl('https://arena.test', 'room-1', 'SIDE_A', 'tok123'));
+    expect(brief).toContain(agentMessageUrl('https://arena.test', 'room-1'));
+    expect(brief).toContain('BUYER');
+    expect(agentBrief('https://arena.test', 'room-1', 'SIDE_B', 'tok123')).toContain('SELLER');
   });
 });

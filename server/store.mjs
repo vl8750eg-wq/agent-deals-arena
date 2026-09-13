@@ -135,10 +135,11 @@ export function createStore() {
     };
   };
 
-  const agentState = (roomId, role) => {
+  const agentState = (roomId, role, agentToken) => {
     const room = get(roomId);
     const own = room.sides[role];
     if (!own) fail('Unknown role.');
+    if (own.agentToken !== agentToken) fail('Invalid agent credentials.');
     return {
       ...publicSnapshot(room),
       role,
@@ -146,13 +147,21 @@ export function createStore() {
     };
   };
 
-  /** Условия вводит человек-владелец через веб. После обеих подач — IN_NEGOTIATION. */
+  /** Условия вводит человек-владелец через веб. После обеих подач — IN_NEGOTIATION.
+   *  Направление фиксировано: A — покупатель (desired <= walkAway),
+   *  B — продавец (desired >= walkAway). Иначе 400 с объяснением. */
   const setConditions = (roomId, ownerToken, conditions) => {
     const room = get(roomId);
     const side = sideOfOwner(room, ownerToken);
     if (!side) fail('Invalid owner token.');
     if (room.status !== 'WAITING_FOR_SUBMISSIONS') fail('Conditions are locked: negotiation already started.');
     if (!isValidConditions(conditions)) fail('Invalid deal conditions.');
+    if (side === 'SIDE_A' && conditions.desiredPrice > conditions.walkAwayPrice) {
+      fail('SIDE_A is the buyer: desired price must be <= walk-away price.');
+    }
+    if (side === 'SIDE_B' && conditions.desiredPrice < conditions.walkAwayPrice) {
+      fail('SIDE_B is the seller: desired price must be >= walk-away price.');
+    }
     room.sides[side].conditions = {
       desiredPrice: conditions.desiredPrice,
       walkAwayPrice: conditions.walkAwayPrice,
@@ -183,6 +192,16 @@ export function createStore() {
       if (!target || target.id !== offer.accepts) {
         fail(`ACCEPT must reference the latest opponent PROPOSE (accepts=${target ? target.id : 'none'}).`);
       }
+    }
+
+    // Серверный предел walk-away: ни PROPOSE, ни ACCEPT не могут выйти за лимит автора.
+    // A — покупатель (цена <= walkAway), B — продавец (цена >= walkAway).
+    const limits = side.conditions;
+    const withinLimit = role === 'SIDE_A'
+      ? offer.price <= limits.walkAwayPrice
+      : offer.price >= limits.walkAwayPrice;
+    if (!withinLimit) {
+      fail(`Offer price ${offer.price} violates your walk-away limit (${limits.walkAwayPrice}).`);
     }
 
     const entry = {

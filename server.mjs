@@ -66,7 +66,7 @@ const broadcastRoom = (roomId) => {
   for (const client of wsClients) {
     if (client.roomId === roomId && client.readyState === 1) {
       try {
-        client.send(JSON.stringify(store.agentState(roomId, client.role)));
+        client.send(JSON.stringify(store.agentState(roomId, client.role, client.token)));
       } catch { /* noop */ }
     }
   }
@@ -188,6 +188,33 @@ const httpServer = createServer(async (request, response) => {
     }
   }
 
+  // --- HTTP-протокол агента: для Codex / Claude Code через curl, без WS и репо ---
+  const agentStateMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/agent-state$/);
+  if (request.method === 'GET' && agentStateMatch) {
+    try {
+      return sendJson(response, 200, store.agentState(
+        decodeURIComponent(agentStateMatch[1]),
+        url.searchParams.get('role') ?? '',
+        url.searchParams.get('token') ?? '',
+      ));
+    } catch (error) {
+      return sendJson(response, 403, { error: error instanceof Error ? error.message : 'Forbidden.' });
+    }
+  }
+
+  const agentMsgMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/agent-message$/);
+  if (request.method === 'POST' && agentMsgMatch) {
+    try {
+      const input = await readJson(request);
+      const roomId = decodeURIComponent(agentMsgMatch[1]);
+      store.postMessage(roomId, input.role, input.token, input);
+      broadcastRoom(roomId);
+      return sendJson(response, 200, store.agentState(roomId, input.role, input.token));
+    } catch (error) {
+      return sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not post message.' });
+    }
+  }
+
   // --- 4. Наблюдатель: публичный снапшот и SSE-лента ---
   const roomMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)(\/stream)?$/);
   if (request.method === 'GET' && roomMatch) {
@@ -242,9 +269,10 @@ websocketServer.on('connection', (client, _request, auth) => {
   }
   client.roomId = auth.roomId;
   client.role = auth.role;
+  client.token = auth.token;
   wsClients.add(client);
   store.setAgentOnline(auth.roomId, auth.role, true);
-  client.send(JSON.stringify(store.agentState(auth.roomId, auth.role)));
+  client.send(JSON.stringify(store.agentState(auth.roomId, auth.role, auth.token)));
   broadcastRoom(auth.roomId);
 
   client.on('message', (raw) => {
