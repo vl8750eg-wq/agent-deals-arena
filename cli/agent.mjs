@@ -46,18 +46,51 @@ const stamp = () => new Date().toLocaleTimeString('ru-RU', { hour12: false });
 const log = (...parts) => console.log(`[${stamp()}] [${name}]`, ...parts);
 
 const url = `${server}/ws?room=${encodeURIComponent(roomId)}&role=${role}&token=${encodeURIComponent(token)}`;
-log(`connecting to ${url}`);
 
-const socket = new WebSocket(url);
+let socket = null;
 let myTurnsTaken = 0;
 let acting = false;
 let finished = false;
 let seenIds = new Set();
 let limitsAnnounced = false;
+let lastState = null;
+let lastWaitKey = '';
+let lastTurnSeen = '';
 
-socket.on('open', () => {
-  log('connected. Waiting for both humans to enter conditions in the web UI…');
-});
+const waitKeyOf = (state) => {
+  if (!state || state.type !== 'room_state') return 'none';
+  if (state.status !== 'IN_NEGOTIATION' && state.status !== 'WAITING_FOR_SUBMISSIONS') return state.status;
+  return `${state.status}|own=${Boolean(state.ownConditions)}|other=${state.submitted[role === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A']}|turn=${state.nextTurn}`;
+};
+
+const waitLineOf = (state) => {
+  if (!state.ownConditions) return 'жду: человек ещё не ввёл условия в вебе (owner-ссылка)…';
+  if (state.status === 'WAITING_FOR_SUBMISSIONS') {
+    const other = state.submitted[role === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A'] ? 'submitted' : 'pending';
+    return `жду вторую сторону… (оппонент: ${other})`;
+  }
+  if (state.status === 'IN_NEGOTIATION' && state.nextTurn !== role) {
+    return `жду хода ${state.nextTurn} (раунд ${state.messages.length}/${state.maxRounds})…`;
+  }
+  return '';
+};
+
+// Heartbeat: процесс никогда не молчит дольше 15 сек, пока ждёт.
+// Раннеры, убивающие «молчащие» сессии, видят что агент жив и чего ждёт.
+setInterval(() => {
+  if (finished || !lastState) return;
+  const line = waitLineOf(lastState);
+  if (line) log(line);
+}, 15000);
+
+function connect() {
+  if (finished) return;
+  log(`connecting to ${url}`);
+  socket = new WebSocket(url);
+
+  socket.on('open', () => {
+    log('connected. Жду своей очереди — торг начнётся сам.');
+  });
 
 socket.on('message', (raw) => {
   let state;
@@ -72,6 +105,7 @@ socket.on('message', (raw) => {
     return;
   }
   if (state.type !== 'room_state') return;
+  lastState = state;
 
   for (const m of state.messages) {
     if (!seenIds.has(m.id)) {
@@ -100,17 +134,23 @@ socket.on('message', (raw) => {
     return;
   }
 
-  if (!state.ownConditions) {
-    log('my human has not entered conditions yet — waiting (web UI, owner link).');
+  if (!state.ownConditions || state.status !== 'IN_NEGOTIATION' || state.nextTurn !== role) {
+    // Строка ожидания — только при смене ситуации, не спамим на каждый broadcast.
+    const key = waitKeyOf(state);
+    if (key !== lastWaitKey) {
+      lastWaitKey = key;
+      const line = waitLineOf(state);
+      if (line) log(line);
+    }
+    if (state.nextTurn !== lastTurnSeen) {
+      lastTurnSeen = state.nextTurn;
+      if (state.status === 'IN_NEGOTIATION') log(`очередь хода: ${state.nextTurn}`);
+    }
     return;
   }
-  if (state.status !== 'IN_NEGOTIATION') {
-    const other = state.submitted[role === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A'] ? 'submitted' : 'pending';
-    log(`waiting for the other human… (opponent conditions: ${other})`);
-    return;
-  }
+  lastTurnSeen = state.nextTurn;
 
-  if (state.nextTurn !== role || acting) return;
+  if (acting) return;
   acting = true;
   setTimeout(() => {
     try {
@@ -152,10 +192,16 @@ socket.on('message', (raw) => {
   }, Number.isFinite(delayMs) ? delayMs : 800);
 });
 
-socket.on('close', () => {
-  if (!finished) log('connection closed.');
-});
+  socket.on('close', () => {
+    if (finished) return;
+    acting = false;
+    log('соединение потеряно — переподключаюсь через 3 сек… (сессия продолжается)');
+    setTimeout(connect, 3000);
+  });
 
-socket.on('error', (error) => {
-  log(`connection error: ${error.message}`);
-});
+  socket.on('error', (error) => {
+    if (!finished) log(`connection error: ${error.message} (жду/переподключаюсь, сессия продолжается)`);
+  });
+}
+
+connect();
