@@ -1,0 +1,230 @@
+// Хранилище комнат и протокол переговоров (чистая логика, без HTTP/WS).
+// Серверные инварианты:
+//  - условия сделки вводит только человек-владелец (owner token, веб);
+//  - агент видит только свои условия + публичные сообщения;
+//  - ходы строго по очереди (nextTurn), ACCEPT обязан ссылаться на
+//    последний PROPOSE оппонента (accepts = id сообщения);
+//  - наблюдатель не получает ни токенов, ни приватных условий.
+
+import { randomBytes, randomUUID } from 'node:crypto';
+
+const ROOM_TTL_MS = 24 * 3600 * 1000;
+
+export const createToken = () => randomBytes(18).toString('base64url');
+
+const fail = (message) => {
+  throw new Error(message);
+};
+
+const isValidConditions = (c) => (
+  c &&
+  Number.isFinite(c.desiredPrice) && c.desiredPrice >= 0 &&
+  Number.isFinite(c.walkAwayPrice) && c.walkAwayPrice >= 0 &&
+  typeof c.notes === 'string' && c.notes.length <= 2_000
+);
+
+const normalizeOffer = (offer) => {
+  if (!offer || typeof offer !== 'object') fail('Offer must be an object.');
+  const { status, price, currency, terms, accepts } = offer;
+  if (!['PROPOSE', 'ACCEPT', 'REJECT'].includes(status)) fail('Offer status must be PROPOSE, ACCEPT or REJECT.');
+  if (!Number.isFinite(price) || price < 0) fail('Offer price must be a non-negative number.');
+  if (typeof currency !== 'string' || currency.trim().length !== 3) fail('Offer currency must be a 3-letter code.');
+  const clean = {
+    price,
+    currency: currency.trim().toUpperCase(),
+    terms: Array.isArray(terms) ? terms : [],
+    status,
+  };
+  if (status === 'ACCEPT') {
+    if (typeof accepts !== 'string' || !accepts) fail('ACCEPT must reference the opponent PROPOSE via "accepts" message id.');
+    clean.accepts = accepts;
+  }
+  return clean;
+};
+
+export function createStore() {
+  const rooms = new Map();
+
+  const get = (roomId) => {
+    const room = rooms.get(roomId);
+    if (!room) fail('Room not found.');
+    if (room.expiresAt < Date.now()) {
+      rooms.delete(roomId);
+      fail('Room expired.');
+    }
+    return room;
+  };
+
+  const sideOfOwner = (room, ownerToken) => {
+    for (const side of ['SIDE_A', 'SIDE_B']) {
+      if (room.sides[side].ownerToken === ownerToken) return side;
+    }
+    return null;
+  };
+
+  const lastOpponentPropose = (room, role) =>
+    [...room.messages].reverse().find((m) => m.side !== role && m.offer.status === 'PROPOSE') ?? null;
+
+  const resultOf = (room) => {
+    const lastAccept = [...room.messages].reverse().find((m) => m.offer.status === 'ACCEPT');
+    if (room.status === 'DEAL_AGREED' && lastAccept) {
+      return { status: 'DEAL_AGREED', price: lastAccept.offer.price, currency: lastAccept.offer.currency, acceptedBy: lastAccept.side };
+    }
+    if (room.status === 'FAILED') {
+      return { status: 'FAILED', reason: room.failReason ?? 'Negotiation ended without a deal.' };
+    }
+    return null;
+  };
+
+  /** Публичный вид: токенов и приватных условий нет. */
+  const publicSnapshot = (room) => ({
+    type: 'room_state',
+    roomId: room.id,
+    lotTitle: room.lotTitle,
+    status: room.status,
+    nextTurn: room.nextTurn,
+    rounds: room.messages.length,
+    maxRounds: room.maxRounds,
+    submitted: { SIDE_A: Boolean(room.sides.SIDE_A.conditions), SIDE_B: Boolean(room.sides.SIDE_B.conditions) },
+    agentOnline: { SIDE_A: room.sides.SIDE_A.agentOnline, SIDE_B: room.sides.SIDE_B.agentOnline },
+    messages: room.messages,
+    result: resultOf(room),
+  });
+
+  const createRoom = ({ lotTitle = '', maxRounds = 20 } = {}) => {
+    const room = {
+      id: randomUUID(),
+      lotTitle: String(lotTitle ?? '').slice(0, 200),
+      maxRounds: Number.isFinite(Number(maxRounds)) && Number(maxRounds) > 0 ? Math.min(100, Math.floor(Number(maxRounds))) : 20,
+      createdAt: new Date().toISOString(),
+      expiresAt: Date.now() + ROOM_TTL_MS,
+      inviteToken: createToken(),
+      sides: {
+        SIDE_A: { ownerToken: createToken(), agentToken: createToken(), conditions: null, agentOnline: false },
+        SIDE_B: { ownerToken: createToken(), agentToken: createToken(), conditions: null, agentOnline: false },
+      },
+      messages: [],
+      status: 'WAITING_FOR_SUBMISSIONS',
+      nextTurn: 'SIDE_A',
+      failReason: null,
+    };
+    rooms.set(room.id, room);
+    return room;
+  };
+
+  /** Обмен инвайта оппонента на его owner-токен (идемпотентно). */
+  const claimInvite = (roomId, inviteToken) => {
+    const room = get(roomId);
+    if (!inviteToken || inviteToken !== room.inviteToken) fail('Invalid invite token.');
+    return { side: 'SIDE_B', ownerToken: room.sides.SIDE_B.ownerToken };
+  };
+
+  const ownerSnapshot = (roomId, ownerToken) => {
+    const room = get(roomId);
+    const side = sideOfOwner(room, ownerToken);
+    if (!side) fail('Invalid owner token.');
+    const own = room.sides[side];
+    return {
+      ...publicSnapshot(room),
+      role: side,
+      ownConditions: own.conditions,
+      ownSubmitted: Boolean(own.conditions),
+      otherSubmitted: Boolean(room.sides[side === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A'].conditions),
+      agentToken: own.agentToken,
+      agentHash: `#r=${room.id}&agent=${side}&token=${own.agentToken}`,
+    };
+  };
+
+  const agentState = (roomId, role) => {
+    const room = get(roomId);
+    const own = room.sides[role];
+    if (!own) fail('Unknown role.');
+    return {
+      ...publicSnapshot(room),
+      role,
+      ownConditions: own.conditions,
+    };
+  };
+
+  /** Условия вводит человек-владелец через веб. После обеих подач — IN_NEGOTIATION. */
+  const setConditions = (roomId, ownerToken, conditions) => {
+    const room = get(roomId);
+    const side = sideOfOwner(room, ownerToken);
+    if (!side) fail('Invalid owner token.');
+    if (room.status !== 'WAITING_FOR_SUBMISSIONS') fail('Conditions are locked: negotiation already started.');
+    if (!isValidConditions(conditions)) fail('Invalid deal conditions.');
+    room.sides[side].conditions = {
+      desiredPrice: conditions.desiredPrice,
+      walkAwayPrice: conditions.walkAwayPrice,
+      notes: String(conditions.notes ?? '').slice(0, 2000).trim(),
+    };
+    if (room.sides.SIDE_A.conditions && room.sides.SIDE_B.conditions) {
+      room.status = 'IN_NEGOTIATION';
+      room.nextTurn = 'SIDE_A';
+    }
+    return { side, status: room.status };
+  };
+
+  /** Ход CLI-агента: проверка токена, очереди и ссылки ACCEPT. */
+  const postMessage = (roomId, role, agentToken, payload) => {
+    const room = get(roomId);
+    const side = room.sides[role];
+    if (!side || side.agentToken !== agentToken) fail('Invalid agent credentials.');
+    if (room.status !== 'IN_NEGOTIATION') fail('Negotiation is not active.');
+    if (role !== room.nextTurn) fail(`Not your turn. Expected ${room.nextTurn}.`);
+    if (!room.sides.SIDE_A.conditions || !room.sides.SIDE_B.conditions) fail('Both sides must submit conditions first.');
+
+    const offer = normalizeOffer(payload?.offer);
+    const message = String(payload?.message ?? '').trim();
+    if (!message || message.length > 2000) fail('Message must be 1..2000 characters.');
+
+    if (offer.status === 'ACCEPT') {
+      const target = lastOpponentPropose(room, role);
+      if (!target || target.id !== offer.accepts) {
+        fail(`ACCEPT must reference the latest opponent PROPOSE (accepts=${target ? target.id : 'none'}).`);
+      }
+    }
+
+    const entry = {
+      id: randomUUID(),
+      seq: room.messages.length + 1,
+      side: role,
+      offer,
+      message,
+      createdAt: new Date().toISOString(),
+    };
+    room.messages.push(entry);
+
+    if (offer.status === 'ACCEPT') {
+      room.status = 'DEAL_AGREED';
+    } else if (offer.status === 'REJECT') {
+      room.status = 'FAILED';
+      room.failReason = `${role} rejected the deal.`;
+    } else if (room.messages.length >= room.maxRounds) {
+      room.status = 'FAILED';
+      room.failReason = `Round limit reached (${room.maxRounds}).`;
+    } else {
+      room.nextTurn = role === 'SIDE_A' ? 'SIDE_B' : 'SIDE_A';
+    }
+    return entry;
+  };
+
+  const setAgentOnline = (roomId, role, online) => {
+    const room = rooms.get(roomId);
+    if (room && room.sides[role]) room.sides[role].agentOnline = online;
+  };
+
+  const purge = () => {
+    for (const [id, room] of rooms) {
+      if (room.expiresAt < Date.now()) rooms.delete(id);
+    }
+  };
+
+  return {
+    createRoom, claimInvite, ownerSnapshot, agentState,
+    setConditions, postMessage, publicSnapshot, setAgentOnline, purge,
+    size: () => rooms.size,
+    // только для тестов/отладки:
+    _get: (roomId) => rooms.get(roomId),
+  };
+}

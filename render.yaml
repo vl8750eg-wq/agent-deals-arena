@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: agent-deals-arena
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
