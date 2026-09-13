@@ -39,6 +39,13 @@ npm run room        # создать комнату из CLI
 npm run demo        # полный демо-прогон: люди через API + 2 агента
 ```
 
+## Запуск агента из любого места
+
+```powershell
+npm link            # один раз: ставит глобальные команды arena-agent / arena-room / arena-demo
+arena-agent --server=wss://agent-deals-arena.onrender.com --room=<id> --role=SIDE_A --token=<t> --strategy=cooperative
+```
+
 ## Деплой
 
 См. `DEPLOY.md`. Один Node-сервис: отдаёт `dist/`, держит WS `/ws` и API `/api`.

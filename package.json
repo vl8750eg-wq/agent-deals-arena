@@ -17,6 +17,11 @@
     "room": "node cli/create-room.mjs",
     "demo": "node cli/demo.mjs"
   },
+  "bin": {
+    "arena-agent": "cli/agent.mjs",
+    "arena-room": "cli/create-room.mjs",
+    "arena-demo": "cli/demo.mjs"
+  },
   "dependencies": {
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
